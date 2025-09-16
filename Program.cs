@@ -14,11 +14,12 @@ namespace ArashiDNS.Lity
         public static IPEndPoint Listen = new IPEndPoint(IPAddress.Any, 5380);
         public static IPEndPoint Up = new IPEndPoint(IPAddress.Any, 53);
         public static int TimeOut = 3000;
-
-        public static RecursiveDnsResolver RecursiveResolver = new RecursiveDnsResolver()
-            {Is0x20ValidationEnabled = false, IsResponseValidationEnabled = false, QueryTimeout = TimeOut};
         public static string Path = "dns-query";
         public static string Key = "dns";
+
+        public static RecursiveDnsResolver RecursiveResolver = new()
+            {Is0x20ValidationEnabled = false, IsResponseValidationEnabled = false, QueryTimeout = TimeOut};
+
         static void Main(string[] args)
         {
             var host = new WebHostBuilder()
