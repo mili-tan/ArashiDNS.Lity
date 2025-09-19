@@ -27,9 +27,9 @@ namespace ArashiDNS.Lity
             var cmd = new CommandLineApplication
             {
                 Name = "ArashiDNS.Lity",
-                Description = "ArashiDNS.Lity - Minimal DNS over HTTPS  server with recursive" +
+                Description = "ArashiDNS.Lity - Minimal DNS over HTTPS server with Recursive Resolver" +
                               Environment.NewLine +
-                              $"Copyright (c) {DateTime.Now.Year} Milkey Tan. Code released under the FSL-1.1-ALv2 License"
+                              $"Copyright (c) {DateTime.Now.Year} Milkey Tan. Code released under the MIT License"
             };
             cmd.HelpOption("-?|-he|--help");
             var isZh = Thread.CurrentThread.CurrentCulture.Name.Contains("zh");
