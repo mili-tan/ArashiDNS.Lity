@@ -47,6 +47,8 @@ namespace ArashiDNS.Lity
                 if (pOption.HasValue()) Path = pOption.ParsedValue;
                 if (kOption.HasValue()) Key = kOption.ParsedValue;
                 if (vOption.HasValue()) Validation = vOption.ParsedValue;
+                if (Listen.Port == 0) Listen.Port = 53;
+
                 RecursiveResolver = new RecursiveDnsResolver()
                     {Is0x20ValidationEnabled = Validation, IsResponseValidationEnabled = Validation, QueryTimeout = TimeOut};
 
