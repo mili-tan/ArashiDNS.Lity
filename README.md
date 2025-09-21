@@ -33,6 +33,6 @@ Options:
 
 ## License
 
-Copyright (c) 2025 Milkey Tan. Code released under the [MIT License](https://github.com/mili-tan/ArashiDNS.Aha/blob/main/LICENSE). 
+Copyright (c) 2025 Milkey Tan. Code released under the [MIT License](https://github.com/mili-tan/ArashiDNS.Lity/blob/main/LICENSE). 
 
 <sup>ArashiDNS™ is a trademark of Milkey Tan.</sup>
