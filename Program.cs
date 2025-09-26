@@ -96,7 +96,9 @@ namespace ArashiDNS.Lity
                                                 var res = await new DnsClient([Up.Address],
                                                     [new UdpClientTransport(Up.Port), new TcpClientTransport(Up.Port)],
                                                     queryTimeout: TimeOut).SendMessageAsync(query);
+                                                
                                                 if (res != null) result = res;
+                                                else result.ReturnCode = ReturnCode.ServerFailure;
                                             }
                                         }
 
