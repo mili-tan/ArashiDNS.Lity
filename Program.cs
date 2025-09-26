@@ -73,26 +73,31 @@ namespace ArashiDNS.Lity
                                 endpoint.Map(
                                     Path, async context =>
                                     {
-                                        var dnsMsg = context.Request.Method.ToUpper() == "POST"
+                                        var query = context.Request.Method.ToUpper() == "POST"
                                             ? await DNSParser.FromPostByteAsync(context)
                                             : DNSParser.FromWebBase64(context, Key);
-                                        var quest = dnsMsg.Questions.FirstOrDefault();
-                                        var result = dnsMsg.CreateResponseInstance();
+                                        var result = query.CreateResponseInstance();
 
-                                        if (Equals(Up.Address, IPAddress.Any))
+                                        if (query.Questions.Any())
                                         {
-                                            var record = RecursiveResolver.Resolve<DnsRecordBase>(quest.Name,
-                                                quest.RecordType,
-                                                quest.RecordClass);
-                                            if (record.Any()) result.AnswerRecords.AddRange(record);
-                                            else result.ReturnCode = ReturnCode.NxDomain;
-                                        }
-                                        else
-                                        {
-                                            var res = await new DnsClient([Up.Address],
-                                                [new UdpClientTransport(Up.Port), new TcpClientTransport(Up.Port)],
-                                                queryTimeout: TimeOut).SendMessageAsync(dnsMsg);
-                                            if (res != null) result = res;
+                                            var quest = query.Questions.First();
+
+                                            if (Equals(Up.Address, IPAddress.Any))
+                                            {
+                                                var record = RecursiveResolver.Resolve<DnsRecordBase>(quest.Name,
+                                                    quest.RecordType,
+                                                    quest.RecordClass);
+
+                                                if (record.Any()) result.AnswerRecords.AddRange(record);
+                                                else result.ReturnCode = ReturnCode.NxDomain;
+                                            }
+                                            else
+                                            {
+                                                var res = await new DnsClient([Up.Address],
+                                                    [new UdpClientTransport(Up.Port), new TcpClientTransport(Up.Port)],
+                                                    queryTimeout: TimeOut).SendMessageAsync(query);
+                                                if (res != null) result = res;
+                                            }
                                         }
 
                                         context.Response.ContentType = "application/dns-message";
