@@ -96,14 +96,20 @@ namespace ArashiDNS.Lity
                                                 var res = await new DnsClient([Up.Address],
                                                     [new UdpClientTransport(Up.Port), new TcpClientTransport(Up.Port)],
                                                     queryTimeout: TimeOut).SendMessageAsync(query);
-                                                
+
                                                 if (res != null) result = res;
                                                 else result.ReturnCode = ReturnCode.ServerFailure;
                                             }
                                         }
 
+                                        var responseBytes = DnsEncoder.Encode(result, transIdEnable: true);
+
                                         context.Response.ContentType = "application/dns-message";
-                                        await context.Response.BodyWriter.WriteAsync(DnsEncoder.Encode(result));
+                                        context.Response.StatusCode = 200;
+                                        context.Response.ContentLength = responseBytes.Length;
+                                        context.Response.Headers.Server = "ArashiDNSP/Lity";
+
+                                        await context.Response.BodyWriter.WriteAsync(responseBytes);
                                     });
                             });
                         });
