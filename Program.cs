@@ -111,14 +111,15 @@ namespace ArashiDNS.Lity
 
                                             if (Equals(Up.Address, IPAddress.Any))
                                             {
-                                                var record = RecursiveResolverPool.Get().Resolve<DnsRecordBase>(quest.Name,
+                                                var resolver = RecursiveResolverPool.Get();
+                                                var record = resolver.Resolve<DnsRecordBase>(quest.Name,
                                                     quest.RecordType,
                                                     quest.RecordClass);
 
                                                 if (record.Any()) result.AnswerRecords.AddRange(record);
                                                 else result.ReturnCode = ReturnCode.NxDomain;
 
-                                                RecursiveResolverPool.Return(RecursiveResolverPool.Get());
+                                                RecursiveResolverPool.Return(resolver);
                                             }
                                             else
                                             {
