@@ -1,14 +1,15 @@
-﻿using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
-using Microsoft.Extensions.DependencyInjection;
-using System.Net;
-using Arashi;
+﻿using Arashi;
 using ARSoft.Tools.Net;
 using ARSoft.Tools.Net.Dns;
 using McMaster.Extensions.CommandLineUtils;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Primitives;
+using System.Collections.Concurrent;
+using System.Net;
 
 namespace ArashiDNS.Lity
 {
@@ -21,8 +22,11 @@ namespace ArashiDNS.Lity
         public static string Key = "dns";
         public static bool Validation = false;
 
-        public static RecursiveDnsResolver RecursiveResolver = new()
-            {Is0x20ValidationEnabled = Validation, IsResponseValidationEnabled = Validation, QueryTimeout = TimeOut};
+        public static ObjectPool<RecursiveDnsResolver> RecursiveResolverPool = new(() =>
+            new RecursiveDnsResolver()
+            {
+                Is0x20ValidationEnabled = Validation, IsResponseValidationEnabled = Validation, QueryTimeout = TimeOut
+            });
 
         static void Main(string[] args)
         {
@@ -52,8 +56,13 @@ namespace ArashiDNS.Lity
                 if (Up.Port == 0) Up.Port = 53;
                 if (Listen.Port == 0) Listen.Port = 8053;
 
-                RecursiveResolver = new RecursiveDnsResolver()
-                    {Is0x20ValidationEnabled = Validation, IsResponseValidationEnabled = Validation, QueryTimeout = TimeOut};
+                RecursiveResolverPool = new(() =>
+                    new RecursiveDnsResolver()
+                    {
+                        Is0x20ValidationEnabled = Validation,
+                        IsResponseValidationEnabled = Validation,
+                        QueryTimeout = TimeOut
+                    });
 
                 var host = new WebHostBuilder()
                     .UseKestrel()
@@ -102,12 +111,14 @@ namespace ArashiDNS.Lity
 
                                             if (Equals(Up.Address, IPAddress.Any))
                                             {
-                                                var record = RecursiveResolver.Resolve<DnsRecordBase>(quest.Name,
+                                                var record = RecursiveResolverPool.Get().Resolve<DnsRecordBase>(quest.Name,
                                                     quest.RecordType,
                                                     quest.RecordClass);
 
                                                 if (record.Any()) result.AnswerRecords.AddRange(record);
                                                 else result.ReturnCode = ReturnCode.NxDomain;
+
+                                                RecursiveResolverPool.Return(RecursiveResolverPool.Get());
                                             }
                                             else
                                             {
@@ -136,6 +147,25 @@ namespace ArashiDNS.Lity
                 host.Run();
             });
             cmd.Execute(args);
+        }
+
+        public class ObjectPool<T>
+        {
+            private readonly ConcurrentBag<T> _objects;
+            private readonly Func<T> _objectGenerator;
+
+            public ObjectPool(Func<T> objectGenerator)
+            {
+                _objectGenerator = objectGenerator ?? throw new ArgumentNullException(nameof(objectGenerator));
+                _objects = new ConcurrentBag<T>();
+            }
+
+            public T Get() => _objects.TryTake(out T item) ? item : _objectGenerator();
+
+            public void Return(T item)
+            {
+                if (_objects.Count <= 10) _objects.Add(item);
+            }
         }
     }
 }
