@@ -71,7 +71,7 @@ namespace ArashiDNS.Lity
                                 endpoint.Map(
                                     "/", async context => { await context.Response.WriteAsync("200 OK"); });
                                 endpoint.Map(
-                                    "/" + Path, async context =>
+                                    "/" + Path.Trim('/'), async context =>
                                     {
                                         var query = context.Request.Method.ToUpper() == "POST"
                                             ? await DNSParser.FromPostByteAsync(context)
