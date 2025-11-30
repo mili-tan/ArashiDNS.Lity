@@ -4,9 +4,11 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using Arashi;
+using ARSoft.Tools.Net;
 using ARSoft.Tools.Net.Dns;
 using McMaster.Extensions.CommandLineUtils;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Primitives;
 
 namespace ArashiDNS.Lity
 {
@@ -73,9 +75,25 @@ namespace ArashiDNS.Lity
                                 endpoint.Map(
                                     "/" + Path.Trim('/'), async context =>
                                     {
-                                        var query = context.Request.Method.ToUpper() == "POST"
-                                            ? await DNSParser.FromPostByteAsync(context)
-                                            : DNSParser.FromWebBase64(context, Key);
+                                        var query = context.Request.Query.TryGetValue("name", out var nameStr)
+                                            ? new DnsMessage()
+                                            {
+                                                Questions =
+                                                [
+                                                    new DnsQuestion(
+                                                        DomainName.Parse(nameStr.ToString()),
+                                                        context.Request.Query.TryGetValue("type", out var typeStr)
+                                                            ?
+                                                            RecordType.A
+                                                            : Enum.TryParse<RecordType>(typeStr.ToString(),
+                                                                out var typeVal)
+                                                                ? typeVal
+                                                                : RecordType.A, RecordClass.INet)
+                                                ]
+                                            }
+                                            : context.Request.Method.ToUpper() == "POST"
+                                                ? await DNSParser.FromPostByteAsync(context)
+                                                : DNSParser.FromWebBase64(context, Key);
                                         var result = query.CreateResponseInstance();
 
                                         if (query.Questions.Any())
