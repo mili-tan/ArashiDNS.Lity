@@ -15,7 +15,7 @@ namespace ArashiDNS.Lity
         public static IPEndPoint Listen = new IPEndPoint(IPAddress.Any, 5380);
         public static IPEndPoint Up = new IPEndPoint(IPAddress.Any, 53);
         public static int TimeOut = 3000;
-        public static string Path = "/dns-query";
+        public static string Path = "dns-query";
         public static string Key = "dns";
         public static bool Validation = false;
 
@@ -71,7 +71,7 @@ namespace ArashiDNS.Lity
                                 endpoint.Map(
                                     "/", async context => { await context.Response.WriteAsync("200 OK"); });
                                 endpoint.Map(
-                                    Path, async context =>
+                                    "/" + Path, async context =>
                                     {
                                         var query = context.Request.Method.ToUpper() == "POST"
                                             ? await DNSParser.FromPostByteAsync(context)
