@@ -51,12 +51,12 @@ namespace ArashiDNS
                     foreach (var key in expiredNsKeys) NsQueryCache.TryRemove(key, out var _);
 
                     if (expiredDnsKeys.Any() || expiredNsKeys.Any())
-                        Console.WriteLine($"Cache cleanup: {expiredDnsKeys.Count} DNS entries, " +
-                                          $"{expiredNsKeys.Count} NS entries removed.");
+                        if (UseLog) Console.WriteLine($"Cache cleanup: {expiredDnsKeys.Count} DNS entries, " +
+                                                      $"{expiredNsKeys.Count} NS entries removed.");
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Cache cleanup error: {ex.Message}");
+                    if (UseLog) Console.WriteLine($"Cache cleanup error: {ex.Message}");
                 }
             }, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(5));
         }
