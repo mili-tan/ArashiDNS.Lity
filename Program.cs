@@ -15,7 +15,7 @@ namespace ArashiDNS.Lity
     internal class Program
     {
         public static IPEndPoint Listen = new IPEndPoint(IPAddress.Any, 5380);
-        public static IPEndPoint Up = new IPEndPoint(IPAddress.Broadcast, 53);
+        public static IPEndPoint Up = new IPEndPoint(IPAddress.Any, 53);
         public static int TimeOut = 3000;
         public static string Path = "dns-query";
         public static string Key = "dns";
