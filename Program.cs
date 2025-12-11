@@ -7,7 +7,6 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Primitives;
 using System.Collections.Concurrent;
 using System.Net;
 
@@ -16,7 +15,7 @@ namespace ArashiDNS.Lity
     internal class Program
     {
         public static IPEndPoint Listen = new IPEndPoint(IPAddress.Any, 5380);
-        public static IPEndPoint Up = new IPEndPoint(IPAddress.Any, 53);
+        public static IPEndPoint Up = new IPEndPoint(IPAddress.Broadcast, 53);
         public static int TimeOut = 3000;
         public static string Path = "dns-query";
         public static string Key = "dns";
@@ -55,6 +54,9 @@ namespace ArashiDNS.Lity
                 if (vOption.HasValue()) Validation = vOption.ParsedValue;
                 if (Up.Port == 0) Up.Port = 53;
                 if (Listen.Port == 0) Listen.Port = 8053;
+
+                if (Equals(Up.Address, IPAddress.Broadcast)) 
+                    Comet.InitCleanupCacheTask();
 
                 RecursiveResolverPool = new(() =>
                     new RecursiveDnsResolver()
@@ -109,7 +111,9 @@ namespace ArashiDNS.Lity
                                         {
                                             var quest = query.Questions.First();
 
-                                            if (Equals(Up.Address, IPAddress.Any))
+                                            if (Equals(Up.Address, IPAddress.Broadcast))
+                                                result = await Comet.DoQuery(query);
+                                            else if (Equals(Up.Address, IPAddress.Any))
                                             {
                                                 var resolver = RecursiveResolverPool.Get();
                                                 var record = resolver.Resolve<DnsRecordBase>(quest.Name,
