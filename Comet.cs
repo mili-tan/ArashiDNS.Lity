@@ -22,6 +22,7 @@ namespace ArashiDNS
         public static int MinTTL = 60;
 
         public static bool UseLog = false;
+        public static bool UseV6Ns = false;
         public static bool UseResponseCache = true;
         public static bool UseCnameFoldingCache = true;
 
@@ -161,7 +162,7 @@ namespace ArashiDNS
                 return answer;
             }
 
-            var nsServerIPs = await GetNameServerIp(nsServerNames);
+            var nsServerIPs = await GetNameServerIp(nsServerNames.Order().Take(2).ToList());
             if (nsServerIPs.Count == 0)
             {
                 answer.ReturnCode = ReturnCode.NxDomain;
@@ -310,9 +311,10 @@ namespace ArashiDNS
         {
             var nsIps = new List<IPAddress>();
 
-            await Parallel.ForEachAsync(nsServerNames.Order().TakeLast(2), async (item, c) =>
+            await Parallel.ForEachAsync(nsServerNames, async (item, c) =>
             {
                 var aCacheKey = GenerateNsCacheKey(item, RecordType.A);
+                var aaaaCacheKey = GenerateNsCacheKey(item, RecordType.Aaaa);
                 if (NsQueryCache.TryGetValue(aCacheKey, out var aCacheItem) && !aCacheItem.IsExpired)
                 {
                     var cachedIps = aCacheItem.Value.AnswerRecords
@@ -322,6 +324,17 @@ namespace ArashiDNS
 
                     lock (nsIps) nsIps.AddRange(cachedIps);
                     if (UseLog) Task.Run(() => Console.WriteLine($"A record cache hit for: {item}"));
+                    return;
+                }
+                if (UseV6Ns && NsQueryCache.TryGetValue(aaaaCacheKey, out var aaaaCacheItem) && !aaaaCacheItem.IsExpired)
+                {
+                    var cachedIps = aaaaCacheItem.Value.AnswerRecords
+                        .Where(x => x.RecordType == RecordType.A)
+                        .Select(x => ((ARecord)x).Address)
+                        .ToList();
+
+                    lock (nsIps) nsIps.AddRange(cachedIps);
+                    if (UseLog) Task.Run(() => Console.WriteLine($"AAAA record cache hit for: {item}"));
                     return;
                 }
 
@@ -346,6 +359,35 @@ namespace ArashiDNS
                             ExpiryTime = DateTime.UtcNow.AddSeconds(ttl)
                         };
                         if (UseLog) Task.Run(() => Console.WriteLine($"Cached A records for: {item} (TTL: {ttl}s)"));
+                    }
+                }
+                else if (UseV6Ns)
+                {
+                    var nsAaaaRecords =
+                        (await new DnsClient(Servers, Timeout).ResolveAsync(item, RecordType.Aaaa, token: c))
+                        ?.AnswerRecords ?? [];
+                    if (nsAaaaRecords.Any(x => x.RecordType == RecordType.A))
+                    {
+                        var addresses = nsAaaaRecords.Where(x => x.RecordType == RecordType.Aaaa)
+                            .Select(x => ((AaaaRecord)x).Address)
+                            .ToList();
+
+                        lock (nsIps) nsIps.AddRange(addresses);
+
+                        if (nsAaaaRecords.Any())
+                        {
+                            var response = new DnsMessage();
+                            response.AnswerRecords.AddRange(nsAaaaRecords);
+                            var ttl = Math.Max(nsAaaaRecords.Min(r => r.TimeToLive), MinTTL);
+
+                            NsQueryCache[aaaaCacheKey] = new CacheItem<DnsMessage>
+                            {
+                                Value = response,
+                                ExpiryTime = DateTime.UtcNow.AddSeconds(ttl)
+                            };
+                            if (UseLog)
+                                Task.Run(() => Console.WriteLine($"Cached AAAA records for: {item} (TTL: {ttl}s)"));
+                        }
                     }
                 }
             });
@@ -391,7 +433,7 @@ namespace ArashiDNS
 
                     return await ResultResolve(
                         await GetNameServerIp(answer.AuthorityRecords.Where(x => x.RecordType == RecordType.Ns)
-                            .Select(x => ((NsRecord) x).NameServer).ToList()),
+                            .Select(x => ((NsRecord) x).NameServer).Order().Take(2).ToList()),
                         query);
                 }
 
