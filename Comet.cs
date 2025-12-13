@@ -401,7 +401,7 @@ namespace ArashiDNS
             {
                 var quest = query.Questions.First();
                 var client = new DnsClient(nsAddresses,
-                    [new TcpClientTransport(), new UdpClientTransport()],
+                    [new UdpClientTransport(), new TcpClientTransport()],
                     queryTimeout: Timeout);
 
                 var answer = await client.ResolveAsync(quest.Name, quest.RecordType,
