@@ -107,6 +107,13 @@ namespace ArashiDNS.Lity
                                                 : DNSParser.FromWebBase64(context, Key);
                                         var result = query.CreateResponseInstance();
 
+                                        if (context.Request.Query.TryGetValue("ecs", out var ecsStr))
+                                        {
+                                            query.IsEDnsEnabled = true;
+                                            query.EDnsOptions?.Options.Add(new ClientSubnetOption(24,
+                                                IPAddress.Parse(ecsStr.ToString().Split('/').First())));
+                                        }
+
                                         if (query.Questions.Any())
                                         {
                                             var quest = query.Questions.First();
