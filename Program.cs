@@ -110,6 +110,8 @@ namespace ArashiDNS.Lity
                                         if (context.Request.Query.TryGetValue("ecs", out var ecsStr))
                                         {
                                             query.IsEDnsEnabled = true;
+                                            query.EDnsOptions?.Options.RemoveAll(x =>
+                                                x.Type == EDnsOptionType.ClientSubnet);
                                             query.EDnsOptions?.Options.Add(new ClientSubnetOption(24,
                                                 IPAddress.Parse(ecsStr.ToString().Split('/').First())));
                                         }
