@@ -9,7 +9,7 @@ using IPAddress = System.Net.IPAddress;
 
 namespace ArashiDNS
 {
-    public class Comet
+    public class CometLite
     {
         public static IPAddress[] Servers =
         [
@@ -27,6 +27,7 @@ namespace ArashiDNS
         public static bool UseV6Ns = false;
         public static bool UseResponseCache = true;
         public static bool UseCnameFoldingCache = true;
+        public static bool UseEcsCache = true;
 
         public static Timer CacheCleanupTimer;
         public class CacheItem<T>
@@ -70,7 +71,7 @@ namespace ArashiDNS
             if (query.Questions.Count == 0) return response;
 
             var quest = query.Questions.First();
-            var cacheKey = GenerateCacheKey(quest);
+            var cacheKey = UseEcsCache ? GenerateCacheKey(query) : GenerateCacheKey(quest);
             if (UseResponseCache && DnsResponseCache.TryGetValue(cacheKey, out var cacheItem) && !cacheItem.IsExpired)
             {
                 var cachedResponse = cacheItem.Value.DeepClone();
@@ -104,6 +105,12 @@ namespace ArashiDNS
 
         private static string GenerateCacheKey(DnsQuestion question) =>
             $"{question.Name}:{question.RecordType}:{question.RecordClass}";
+
+        private static string GenerateCacheKey(DnsMessage message)
+        {
+            var question = message.Questions.First();
+            return $"{question.Name}:{question.RecordType}:{question.RecordClass}:{GetBaseIpFromDns(message)}";
+        }
 
         private static string GenerateNsCacheKey(DomainName domain, RecordType recordType) => 
             $"{domain}:{recordType}";
@@ -450,6 +457,30 @@ namespace ArashiDNS
                 Console.WriteLine(e);
                 return null;
             }
+        }
+
+        public static IPAddress GetIpFromDns(DnsMessage dnsMsg)
+        {
+            try
+            {
+                if (dnsMsg is { IsEDnsEnabled: false }) return IPAddress.Any;
+                foreach (var eDnsOptionBase in dnsMsg.EDnsOptions.Options.ToList())
+                {
+                    if (eDnsOptionBase is ClientSubnetOption option)
+                        return option.Address;
+                }
+
+                return IPAddress.Any;
+            }
+            catch (Exception)
+            {
+                return IPAddress.Any;
+            }
+        }
+
+        public static string GetBaseIpFromDns(DnsMessage dnsMsg)
+        {
+            return Convert.ToBase64String(GetIpFromDns(dnsMsg).GetAddressBytes());
         }
     }
 }

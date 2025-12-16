@@ -56,7 +56,7 @@ namespace ArashiDNS.Lity
                 if (Listen.Port == 0) Listen.Port = 8053;
 
                 if (Equals(Up.Address, IPAddress.Broadcast)) 
-                    Comet.InitCleanupCacheTask();
+                    CometLite.InitCleanupCacheTask();
 
                 if (Equals(Up.Address, IPAddress.Broadcast) && !File.Exists("./public_suffix_list.dat"))
                 {
@@ -131,7 +131,7 @@ namespace ArashiDNS.Lity
                                             var quest = query.Questions.First();
 
                                             if (Equals(Up.Address, IPAddress.Broadcast))
-                                                result = await Comet.DoQuery(query);
+                                                result = await CometLite.DoQuery(query);
                                             else if (Equals(Up.Address, IPAddress.Any))
                                             {
                                                 var resolver = RecursiveResolverPool.Get();
