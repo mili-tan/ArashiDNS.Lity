@@ -58,6 +58,16 @@ namespace ArashiDNS.Lity
                 if (Equals(Up.Address, IPAddress.Broadcast)) 
                     Comet.InitCleanupCacheTask();
 
+                if (Equals(Up.Address, IPAddress.Broadcast) && !File.Exists("./public_suffix_list.dat"))
+                {
+                    Console.WriteLine("Downloading public_suffix_list.dat...");
+                    File.WriteAllBytes("./public_suffix_list.dat",
+                        new HttpClient()
+                            .GetByteArrayAsync(
+                                "https://publicsuffix.org/list/public_suffix_list.dat")
+                            .Result);
+                }
+
                 RecursiveResolverPool = new(() =>
                     new RecursiveDnsResolver()
                     {
