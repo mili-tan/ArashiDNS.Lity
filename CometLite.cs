@@ -144,6 +144,7 @@ namespace ArashiDNS
             var answer = query.CreateResponseInstance();
             var quest = query.Questions.First();
             var cnameFoldCacheKey = $"{quest.Name}:CNAME-FOLD:{quest.RecordClass}";
+            if (UseEcsCache) cnameFoldCacheKey += $":{GetBaseIpFromDns(query)}";
 
             if (UseCnameFoldingCache && DnsResponseCache.TryGetValue(cnameFoldCacheKey, out var nsRootCacheItem) &&
                 !nsRootCacheItem.IsExpired)
