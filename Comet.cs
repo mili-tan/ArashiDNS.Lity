@@ -1,4 +1,6 @@
-﻿using ARSoft.Tools.Net;
+﻿//This class from ArashiDNS.Comet and
+//Released under the FSL-1.1-ALv2 License.
+using ARSoft.Tools.Net;
 using ARSoft.Tools.Net.Dns;
 using DeepCloner.Core;
 using NStack;
@@ -16,7 +18,7 @@ namespace ArashiDNS
         ];
         public static TldExtract TldExtractor = new("./public_suffix_list.dat");
 
-        public static int Timeout = 1000;
+        public static int Timeout = 1250;
         public static int MaxCnameDepth = 30;
         public static int MinNsTTL = 3600;
         public static int MinTTL = 60;
@@ -188,8 +190,8 @@ namespace ArashiDNS
                     {
                         var cnameRecord = cnameAnswer.AnswerRecords
                             .Last(x => x.RecordType == RecordType.CName);
-                        var ttl = Math.Min(cnameAnswer.AnswerRecords.Count > 0
-                            ? cnameAnswer.AnswerRecords.Min(r => r.TimeToLive)
+                        var ttl = Math.Max(cnameAnswer.AnswerRecords.Count > 0
+                            ? cnameAnswer.AnswerRecords.Max(r => r.TimeToLive)
                             : 60, MinTTL);
                         DnsResponseCache[cnameFoldCacheKey] =
                             new CacheItem<DnsMessage>
