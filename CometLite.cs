@@ -96,9 +96,6 @@ namespace ArashiDNS
                 response.IsRecursionDesired = true;
                 response.AnswerRecords.AddRange(answer.AnswerRecords);
 
-                if (!UseEcsCache && response.IsEDnsEnabled && response.EDnsOptions != null) 
-                    response.EDnsOptions.Options.RemoveAll(x => x.Type == EDnsOptionType.ClientSubnet);
-
                 if (UseResponseCache && answer.ReturnCode is ReturnCode.NoError or ReturnCode.NxDomain)
                     CacheDnsResponse(cacheKey, response);
             }
@@ -149,6 +146,12 @@ namespace ArashiDNS
             var quest = query.Questions.First();
             var cnameFoldCacheKey = $"{quest.Name}:CNAME-FOLD:{quest.RecordClass}";
             if (UseEcsCache) cnameFoldCacheKey += $":{GetBaseIpFromDns(query)}";
+
+            if (quest.RecordType == RecordType.Any)
+            {
+                answer.ReturnCode = ReturnCode.Refused;
+                return answer;
+            }
 
             if (UseCnameFoldingCache && DnsResponseCache.TryGetValue(cnameFoldCacheKey, out var nsRootCacheItem) &&
                 !nsRootCacheItem.IsExpired)
@@ -424,7 +427,8 @@ namespace ArashiDNS
                         {EDnsOptions = query.EDnsOptions, IsEDnsEnabled = query.IsEDnsEnabled});
 
                 if (answer is {AnswerRecords.Count: 0} &&
-                    answer.AuthorityRecords.Any(x => x.RecordType == RecordType.Ns))
+                    answer.AuthorityRecords.Any(x => x.RecordType == RecordType.Ns) &&
+                    answer.AuthorityRecords.FirstOrDefault(x => x.RecordType == RecordType.Ns)!.Name.LabelCount > 1)
                 {
                     var nsCacheMsg = query.CreateResponseInstance();
                     var ttl = DateTime.UtcNow.AddSeconds(Math.Min(answer.AuthorityRecords.Count > 0
@@ -432,7 +436,7 @@ namespace ArashiDNS
                         : 300, MinNsTTL));
                     nsCacheMsg.AnswerRecords.AddRange(
                         answer.AuthorityRecords.Where(x => x.RecordType == RecordType.Ns));
-                    
+
                     NsQueryCache[GenerateNsCacheKey(quest.Name, RecordType.Ns)] = new CacheItem<DnsMessage>
                     {
                         Value = nsCacheMsg,
