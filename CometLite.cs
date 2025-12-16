@@ -23,7 +23,7 @@ namespace ArashiDNS
         public static int MinNsTTL = 3600;
         public static int MinTTL = 60;
 
-        public static bool UseLog = true;
+        public static bool UseLog = false;
         public static bool UseV6Ns = false;
         public static bool UseResponseCache = true;
         public static bool UseCnameFoldingCache = true;
