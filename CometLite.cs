@@ -19,11 +19,11 @@ namespace ArashiDNS
         public static TldExtract TldExtractor = new("./public_suffix_list.dat");
 
         public static int Timeout = 1250;
-        public static int MaxCnameDepth = 30;
+        public static int MaxCnameDepth = 10;
         public static int MinNsTTL = 3600;
         public static int MinTTL = 60;
 
-        public static bool UseLog = false;
+        public static bool UseLog = true;
         public static bool UseV6Ns = false;
         public static bool UseResponseCache = true;
         public static bool UseCnameFoldingCache = true;
@@ -144,6 +144,7 @@ namespace ArashiDNS
 
         private static async Task<DnsMessage?> DoResolve(DnsMessage query, int cnameDepth = 0)
         {
+            if (cnameDepth >= MaxCnameDepth + 1) return null;
             var answer = query.CreateResponseInstance();
             var quest = query.Questions.First();
             var cnameFoldCacheKey = $"{quest.Name}:CNAME-FOLD:{quest.RecordClass}";
@@ -408,8 +409,9 @@ namespace ArashiDNS
             return nsIps.Distinct().ToList();
         }
 
-        private static async Task<DnsMessage?> ResultResolve(List<IPAddress> nsAddresses, DnsMessage query)
+        private static async Task<DnsMessage?> ResultResolve(List<IPAddress> nsAddresses, DnsMessage query, int depth = 0)
         {
+            if (depth >= MaxCnameDepth + 1) return null;
             try
             {
                 var quest = query.Questions.First();
@@ -447,7 +449,7 @@ namespace ArashiDNS
                     return await ResultResolve(
                         await GetNameServerIp(answer.AuthorityRecords.Where(x => x.RecordType == RecordType.Ns)
                             .Select(x => ((NsRecord) x).NameServer).Order().Take(2).ToList()),
-                        query);
+                        query, depth + 1);
                 }
 
                 if (answer == null ||
