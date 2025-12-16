@@ -96,6 +96,9 @@ namespace ArashiDNS
                 response.IsRecursionDesired = true;
                 response.AnswerRecords.AddRange(answer.AnswerRecords);
 
+                if (!UseEcsCache && response.IsEDnsEnabled && response.EDnsOptions != null) 
+                    response.EDnsOptions.Options.RemoveAll(x => x.Type == EDnsOptionType.ClientSubnet);
+
                 if (UseResponseCache && answer.ReturnCode is ReturnCode.NoError or ReturnCode.NxDomain)
                     CacheDnsResponse(cacheKey, response);
             }
