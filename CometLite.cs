@@ -291,40 +291,6 @@ namespace ArashiDNS
                 .Select(x => ((NsRecord)x).NameServer).ToList() ?? [];
         }
 
-        private static async Task<List<DomainName>> GetNameServerName(DomainName name, IPAddress ipAddress)
-        {
-            var nsCacheKey = GenerateNsCacheKey(name, RecordType.Ns);
-            if (NsQueryCache.TryGetValue(nsCacheKey, out var nsCacheItem) && !nsCacheItem.IsExpired)
-            {
-                Console.WriteLine($"NS cache hit for: {name}");
-                return nsCacheItem.Value.AnswerRecords
-                    .Where(x => x.RecordType == RecordType.Ns)
-                    .Select(x => ((NsRecord)x).NameServer)
-                    .ToList();
-            }
-
-            var nsResolve = await new DnsClient(ipAddress, Timeout).ResolveAsync(name, RecordType.Ns);
-
-            if (nsResolve != null)
-            {
-                var ttl = Math.Min(nsResolve.AnswerRecords.Count > 0
-                    ? nsResolve.AnswerRecords.Min(r => r.TimeToLive)
-                    : (nsResolve.AuthorityRecords.Count > 0
-                        ? nsResolve.AuthorityRecords.Min(r => r.TimeToLive)
-                        : 300), MinNsTTL);
-
-                NsQueryCache[nsCacheKey] = new CacheItem<DnsMessage>
-                {
-                    Value = nsResolve.DeepClone(),
-                    ExpiryTime = DateTime.UtcNow.AddSeconds(ttl)
-                };
-                Console.WriteLine($"Cached NS records for: {name} (TTL: {ttl}s)");
-            }
-
-            return nsResolve?.AnswerRecords.Where(x => x.RecordType == RecordType.Ns)
-                .Select(x => ((NsRecord)x).NameServer).ToList() ?? [];
-        }
-
         private static async Task<List<IPAddress>> GetNameServerIp(List<DomainName> nsServerNames)
         {
             var nsIps = new List<IPAddress>();
