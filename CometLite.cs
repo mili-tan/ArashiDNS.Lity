@@ -72,7 +72,7 @@ namespace ArashiDNS
             if (query.Questions.Count == 0) return response;
 
             var quest = query.Questions.First();
-            var cacheKey = UseEcsCache ? GenerateCacheKey(query) : GenerateCacheKey(quest);
+            var cacheKey = UseEcsCache ? BuildCacheKey(query) : BuildCacheKey(quest);
             if (UseResponseCache && DnsResponseCache.TryGetValue(cacheKey, out var cacheItem) && !cacheItem.IsExpired)
             {
                 var cachedResponse = cacheItem.Value.DeepClone();
@@ -82,7 +82,7 @@ namespace ArashiDNS
                 return response;
             }
 
-            var answer = await DoResolve(query);
+            var answer = await ResolveAsync(query);
 
             if (answer == null)
             {
@@ -98,25 +98,25 @@ namespace ArashiDNS
                 response.AnswerRecords.AddRange(answer.AnswerRecords);
 
                 if (UseResponseCache && answer.ReturnCode is ReturnCode.NoError or ReturnCode.NxDomain)
-                    CacheDnsResponse(cacheKey, response);
+                    CacheResponse(cacheKey, response);
             }
 
             return response;
         }
 
-        private static string GenerateCacheKey(DnsQuestion question) =>
+        private static string BuildCacheKey(DnsQuestion question) =>
             $"{question.Name}:{question.RecordType}:{question.RecordClass}";
 
-        private static string GenerateCacheKey(DnsMessage message)
+        private static string BuildCacheKey(DnsMessage message)
         {
-            var question = message.Questions.First();
-            return $"{question.Name}:{question.RecordType}:{question.RecordClass}:{GetBaseIpFromDns(message)}";
+            var quest = message.Questions.First();
+            return $"{quest.Name}:{quest.RecordType}:{quest.RecordClass}:{GetClientIpBase64(message)}";
         }
 
-        private static string GenerateNsCacheKey(DomainName domain, RecordType recordType) => 
+        private static string BuildNsCacheKey(DomainName domain, RecordType recordType) =>
             $"{domain}:{recordType}";
 
-        private static void CacheDnsResponse(string key, DnsMessage response)
+        private static void CacheResponse(string key, DnsMessage response)
         {
             var ttl = Math.Max(response.AnswerRecords.Count > 0
                 ? response.AnswerRecords.Min(r => r.TimeToLive)
@@ -132,7 +132,7 @@ namespace ArashiDNS
             if (UseLog) Task.Run(() => Console.WriteLine($"Cached response for: {key} (TTL: {ttl}s)"));
         }
 
-        public static DnsMessage CopyQuery(DnsMessage qMessage, DnsQuestion question)
+        public static DnsMessage CloneQuery(DnsMessage qMessage, DnsQuestion question)
         {
             var newQuery = qMessage.DeepClone();
             newQuery.Questions.Clear();
@@ -140,13 +140,13 @@ namespace ArashiDNS
             return newQuery;
         }
 
-        private static async Task<DnsMessage?> DoResolve(DnsMessage query, int cnameDepth = 0)
+        private static async Task<DnsMessage?> ResolveAsync(DnsMessage query, int cnameDepth = 0)
         {
             if (cnameDepth >= MaxCnameDepth + 1) return null;
             var answer = query.CreateResponseInstance();
             var quest = query.Questions.First();
             var cnameFoldCacheKey = $"{quest.Name}:CNAME-FOLD:{quest.RecordClass}";
-            if (UseEcsCache) cnameFoldCacheKey += $":{GetBaseIpFromDns(query)}";
+            if (UseEcsCache) cnameFoldCacheKey += $":{GetClientIpBase64(query)}";
 
             if (quest.RecordType == RecordType.Any)
             {
@@ -162,44 +162,44 @@ namespace ArashiDNS
                 if (UseLog) Task.Run(() => Console.WriteLine($"CNAME cache hit for: {cNameRecord.CanonicalName}"));
                 answer.AnswerRecords.Add(new CNameRecord(quest.Name, cNameRecord.TimeToLive,
                     cNameRecord.CanonicalName));
-                var cnameAnswer = await DoResolve(CopyQuery(query, new DnsQuestion(cNameRecord.CanonicalName,
+                var cnameAnswer = await ResolveAsync(CloneQuery(query, new DnsQuestion(cNameRecord.CanonicalName,
                     quest.RecordType,
                     quest.RecordClass)), cnameDepth + 1);
                 //Console.WriteLine(cnameAnswer.ReturnCode);
-                if (cnameAnswer is {AnswerRecords.Count: > 0})
+                if (cnameAnswer is { AnswerRecords.Count: > 0 })
                 {
                     answer.AnswerRecords.AddRange(cnameAnswer.AnswerRecords);
                     return answer;
                 }
             }
 
-            var nsServerNames = await GetNameServerName(quest);
-            if (nsServerNames.Count == 0)
+            var nsServers = await GetAuthorityServers(quest);
+            if (nsServers.Count == 0)
             {
                 answer.ReturnCode = ReturnCode.NxDomain;
                 return answer;
             }
 
-            var nsServerIPs = await GetNameServerIp(nsServerNames.Order().Take(2).ToList());
-            if (nsServerIPs.Count == 0)
+            var nsIps = await GetAuthorityServerIps(nsServers.Order().Take(2).ToList());
+            if (nsIps.Count == 0)
             {
                 answer.ReturnCode = ReturnCode.NxDomain;
                 return answer;
             }
 
-            answer = await ResultResolve(nsServerIPs, query);
+            answer = await ResolveFromAuthority(nsIps, query);
 
             if (answer != null && answer.AnswerRecords.Count != 0 &&
                 answer.AnswerRecords.All(x => x.RecordType == RecordType.CName) && cnameDepth <= MaxCnameDepth)
             {
-                var cnameAnswer = await DoResolve(CopyQuery(query, new DnsQuestion(
-                    ((CNameRecord) answer.AnswerRecords.LastOrDefault(x => x.RecordType == RecordType.CName)!)
+                var cnameAnswer = await ResolveAsync(CloneQuery(query, new DnsQuestion(
+                    ((CNameRecord)answer.AnswerRecords.LastOrDefault(x => x.RecordType == RecordType.CName)!)
                     .CanonicalName,
                     quest.RecordType,
                     quest.RecordClass)), cnameDepth + 1);
                 //Console.WriteLine(cnameAnswer.ReturnCode);
 
-                if (cnameAnswer is {AnswerRecords.Count: > 0})
+                if (cnameAnswer is { AnswerRecords.Count: > 0 })
                 {
                     answer.AnswerRecords.AddRange(cnameAnswer.AnswerRecords);
                     if (UseCnameFoldingCache && cnameAnswer.AnswerRecords.Any(x => x.RecordType == RecordType.CName))
@@ -224,16 +224,16 @@ namespace ArashiDNS
             return answer;
         }
 
-        private static async Task<List<DomainName>> GetNameServerName(DnsQuestion query)
+        private static async Task<List<DomainName>> GetAuthorityServers(DnsQuestion query)
         {
             var name = query.Name;
-            if (NsQueryCache.TryGetValue(GenerateNsCacheKey(name, RecordType.Ns), out var nsMainCacheItem) &&
+            if (NsQueryCache.TryGetValue(BuildNsCacheKey(name, RecordType.Ns), out var nsMainCacheItem) &&
                 !nsMainCacheItem.IsExpired)
             {
                 if (UseLog) Task.Run(() => Console.WriteLine($"NS cache hit for: {name}"));
                 return nsMainCacheItem.Value.AnswerRecords
                     .Where(x => x.RecordType == RecordType.Ns)
-                    .Select(x => ((NsRecord) x).NameServer)
+                    .Select(x => ((NsRecord)x).NameServer)
                     .ToList();
             }
 
@@ -245,18 +245,18 @@ namespace ArashiDNS
                     : DomainName.Parse(tld.root + "." + tld.tld);
 
             if (!name.GetParentName().Equals(rootName) &&
-                NsQueryCache.TryGetValue(GenerateNsCacheKey(name.GetParentName(), RecordType.Ns),
+                NsQueryCache.TryGetValue(BuildNsCacheKey(name.GetParentName(), RecordType.Ns),
                     out var nsParentCacheItem) &&
                 !nsParentCacheItem.IsExpired)
             {
                 if (UseLog) Task.Run(() => Console.WriteLine($"NS cache hit for: {name.GetParentName()}"));
                 return nsParentCacheItem.Value.AnswerRecords
                     .Where(x => x.RecordType == RecordType.Ns)
-                    .Select(x => ((NsRecord) x).NameServer)
+                    .Select(x => ((NsRecord)x).NameServer)
                     .ToList();
             }
 
-            var nsRootCacheKey = GenerateNsCacheKey(rootName, RecordType.Ns);
+            var nsRootCacheKey = BuildNsCacheKey(rootName, RecordType.Ns);
             if (NsQueryCache.TryGetValue(nsRootCacheKey, out var nsRootCacheItem) && !nsRootCacheItem.IsExpired)
             {
                 if (UseLog) Task.Run(() => Console.WriteLine($"NS cache hit for: {rootName}"));
@@ -266,39 +266,39 @@ namespace ArashiDNS
                     .ToList();
             }
 
-            var nsResolve = await new DnsClient(Servers, Timeout).ResolveAsync(rootName, RecordType.Ns);
+            var nsAnswer = await new DnsClient(Servers, Timeout).ResolveAsync(rootName, RecordType.Ns);
 
-            if (nsResolve is {AnswerRecords.Count: 0})
-                nsResolve = await new DnsClient(Servers, Timeout).ResolveAsync(rootName.GetParentName(), RecordType.Ns);
+            if (nsAnswer is { AnswerRecords.Count: 0 })
+                nsAnswer = await new DnsClient(Servers, Timeout).ResolveAsync(rootName.GetParentName(), RecordType.Ns);
 
-            if (nsResolve != null)
+            if (nsAnswer != null)
             {
-                var ttl = Math.Min(nsResolve.AnswerRecords.Count > 0
-                    ? nsResolve.AnswerRecords.Min(r => r.TimeToLive)
-                    : (nsResolve.AuthorityRecords.Count > 0
-                        ? nsResolve.AuthorityRecords.Min(r => r.TimeToLive)
+                var ttl = Math.Min(nsAnswer.AnswerRecords.Count > 0
+                    ? nsAnswer.AnswerRecords.Min(r => r.TimeToLive)
+                    : (nsAnswer.AuthorityRecords.Count > 0
+                        ? nsAnswer.AuthorityRecords.Min(r => r.TimeToLive)
                         : 300), MinNsTTL);
 
                 NsQueryCache[nsRootCacheKey] = new CacheItem<DnsMessage>
                 {
-                    Value = nsResolve.DeepClone(),
+                    Value = nsAnswer.DeepClone(),
                     ExpiryTime = DateTime.UtcNow.AddSeconds(ttl)
                 };
                 if (UseLog) Task.Run(() => Console.WriteLine($"Cached NS records for: {rootName} (TTL: {ttl}s)"));
             }
 
-            return nsResolve?.AnswerRecords.Where(x => x.RecordType == RecordType.Ns)
+            return nsAnswer?.AnswerRecords.Where(x => x.RecordType == RecordType.Ns)
                 .Select(x => ((NsRecord)x).NameServer).ToList() ?? [];
         }
 
-        private static async Task<List<IPAddress>> GetNameServerIp(List<DomainName> nsServerNames)
+        private static async Task<List<IPAddress>> GetAuthorityServerIps(List<DomainName> nsServers)
         {
             var nsIps = new List<IPAddress>();
 
-            await Parallel.ForEachAsync(nsServerNames, async (item, c) =>
+            await Parallel.ForEachAsync(nsServers, async (item, c) =>
             {
-                var aCacheKey = GenerateNsCacheKey(item, RecordType.A);
-                var aaaaCacheKey = GenerateNsCacheKey(item, RecordType.Aaaa);
+                var aCacheKey = BuildNsCacheKey(item, RecordType.A);
+                var aaaaCacheKey = BuildNsCacheKey(item, RecordType.Aaaa);
                 if (NsQueryCache.TryGetValue(aCacheKey, out var aCacheItem) && !aCacheItem.IsExpired)
                 {
                     var cachedIps = aCacheItem.Value.AnswerRecords
@@ -379,7 +379,7 @@ namespace ArashiDNS
             return nsIps.Distinct().ToList();
         }
 
-        private static async Task<DnsMessage?> ResultResolve(List<IPAddress> nsAddresses, DnsMessage query, int depth = 0)
+        private static async Task<DnsMessage?> ResolveFromAuthority(List<IPAddress> nsAddresses, DnsMessage query, int depth = 0)
         {
             if (depth >= MaxCnameDepth + 1) return null;
             try
@@ -395,10 +395,12 @@ namespace ArashiDNS
                 var answer = await client.ResolveAsync(quest.Name, quest.RecordType,
                     options: new DnsQueryOptions
                     {
-                        EDnsOptions = query.EDnsOptions, IsEDnsEnabled = query.IsEDnsEnabled, IsRecursionDesired = true
+                        EDnsOptions = query.EDnsOptions,
+                        IsEDnsEnabled = query.IsEDnsEnabled,
+                        IsRecursionDesired = true
                     });
 
-                if (answer is {AnswerRecords.Count: 0} &&
+                if (answer is { AnswerRecords.Count: 0 } &&
                     answer.AuthorityRecords.Any(x => x.RecordType == RecordType.Ns) &&
                     answer.AuthorityRecords.FirstOrDefault(x => x.RecordType == RecordType.Ns)!.Name.LabelCount > 1)
                 {
@@ -409,22 +411,22 @@ namespace ArashiDNS
                     nsCacheMsg.AnswerRecords.AddRange(
                         answer.AuthorityRecords.Where(x => x.RecordType == RecordType.Ns));
 
-                    NsQueryCache[GenerateNsCacheKey(quest.Name, RecordType.Ns)] = new CacheItem<DnsMessage>
+                    NsQueryCache[BuildNsCacheKey(quest.Name, RecordType.Ns)] = new CacheItem<DnsMessage>
                     {
                         Value = nsCacheMsg,
                         ExpiryTime = ttl
                     };
                     NsQueryCache[
-                        GenerateNsCacheKey(answer.AuthorityRecords.First(x => x.RecordType == RecordType.Ns).Name,
+                        BuildNsCacheKey(answer.AuthorityRecords.First(x => x.RecordType == RecordType.Ns).Name,
                             RecordType.Ns)] = new CacheItem<DnsMessage>
-                    {
-                        Value = nsCacheMsg,
-                        ExpiryTime = ttl
-                    };
+                            {
+                                Value = nsCacheMsg,
+                                ExpiryTime = ttl
+                            };
 
-                    return await ResultResolve(
-                        await GetNameServerIp(answer.AuthorityRecords.Where(x => x.RecordType == RecordType.Ns)
-                            .Select(x => ((NsRecord) x).NameServer).Order().Take(2).ToList()),
+                    return await ResolveFromAuthority(
+                        await GetAuthorityServerIps(answer.AuthorityRecords.Where(x => x.RecordType == RecordType.Ns)
+                            .Select(x => ((NsRecord)x).NameServer).Order().Take(2).ToList()),
                         query, depth + 1);
                 }
 
@@ -441,7 +443,7 @@ namespace ArashiDNS
             }
         }
 
-        public static IPAddress GetIpFromDns(DnsMessage dnsMsg)
+        public static IPAddress GetClientIp(DnsMessage dnsMsg)
         {
             try
             {
@@ -460,9 +462,9 @@ namespace ArashiDNS
             }
         }
 
-        public static string GetBaseIpFromDns(DnsMessage dnsMsg)
+        public static string GetClientIpBase64(DnsMessage dnsMsg)
         {
-            return Convert.ToBase64String(GetIpFromDns(dnsMsg).GetAddressBytes());
+            return Convert.ToBase64String(GetClientIp(dnsMsg).GetAddressBytes());
         }
     }
 }
