@@ -28,6 +28,7 @@ namespace ArashiDNS
         public static bool UseResponseCache = true;
         public static bool UseCnameFoldingCache = true;
         public static bool UseEcsCache = true;
+        public static bool UseLessEDns = true;
 
         public static Timer CacheCleanupTimer;
         public class CacheItem<T>
@@ -417,9 +418,12 @@ namespace ArashiDNS
             if (depth >= MaxCnameDepth + 1) return null;
             try
             {
+                if (UseLessEDns && query.EDnsOptions != null && query.EDnsOptions.Options.Any())
+                    query.EDnsOptions.Options.RemoveAll(x => x.Type != EDnsOptionType.ClientSubnet);
+
                 var quest = query.Questions.First();
                 var client = new DnsClient(nsAddresses,
-                    [new TcpClientTransport(), new UdpClientTransport()],
+                    [new UdpClientTransport(), new TcpClientTransport()],
                     queryTimeout: Timeout);
 
                 var answer = await client.ResolveAsync(quest.Name, quest.RecordType,
