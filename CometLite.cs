@@ -394,7 +394,9 @@ namespace ArashiDNS
 
                 var answer = await client.ResolveAsync(quest.Name, quest.RecordType,
                     options: new DnsQueryOptions
-                        {EDnsOptions = query.EDnsOptions, IsEDnsEnabled = query.IsEDnsEnabled});
+                    {
+                        EDnsOptions = query.EDnsOptions, IsEDnsEnabled = query.IsEDnsEnabled, IsRecursionDesired = true
+                    });
 
                 if (answer is {AnswerRecords.Count: 0} &&
                     answer.AuthorityRecords.Any(x => x.RecordType == RecordType.Ns) &&
