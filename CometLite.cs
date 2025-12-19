@@ -29,6 +29,8 @@ namespace ArashiDNS
         public static bool UseCnameFoldingCache = true;
         public static bool UseEcsCache = true;
         public static bool UseLessEDns = true;
+        public static bool No6564 = true;
+        public static bool NoAAAA = true;
 
         public static Timer CacheCleanupTimer;
         public class CacheItem<T>
@@ -73,6 +75,14 @@ namespace ArashiDNS
 
             var quest = query.Questions.First();
             var cacheKey = UseEcsCache ? BuildCacheKey(query) : BuildCacheKey(quest);
+
+            if ((No6564 && quest.RecordType is RecordType.Https or RecordType.SvcB) ||
+                (NoAAAA && quest.RecordType is RecordType.Aaaa))
+            {
+                if (UseLog) Task.Run(() => Console.WriteLine($"No {quest.RecordType} : {quest.Name}"));
+                return query.CreateResponseInstance();
+            }
+
             if (UseResponseCache && DnsResponseCache.TryGetValue(cacheKey, out var cacheItem) && !cacheItem.IsExpired)
             {
                 var cachedResponse = cacheItem.Value.DeepClone();
