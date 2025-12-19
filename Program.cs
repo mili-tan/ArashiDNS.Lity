@@ -104,16 +104,19 @@ namespace ArashiDNS.Lity
                                                     new DnsQuestion(
                                                         DomainName.Parse(nameStr.ToString()),
                                                         context.Request.Query.TryGetValue("type", out var typeStr)
-                                                            ? Enum.TryParse<RecordType>(typeStr.ToString(),
-                                                                out var typeVal)
+                                                            ? Enum.TryParse(typeStr.ToString(), ignoreCase: true,
+                                                                out RecordType typeVal)
                                                                 ? typeVal
-                                                                : RecordType.A : RecordType.A, RecordClass.INet)
+                                                                : RecordType.A
+                                                            : RecordType.A, RecordClass.INet)
                                                 ]
                                             }
                                             : context.Request.Method.ToUpper() == "POST"
                                                 ? await DNSParser.FromPostByteAsync(context)
                                                 : DNSParser.FromWebBase64(context, Key);
                                         var result = query.CreateResponseInstance();
+
+                                        Console.WriteLine(query.Questions.First());
 
                                         if (context.Request.Query.TryGetValue("ecs", out var ecsStr))
                                         {
