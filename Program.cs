@@ -104,12 +104,10 @@ namespace ArashiDNS.Lity
                                                     new DnsQuestion(
                                                         DomainName.Parse(nameStr.ToString()),
                                                         context.Request.Query.TryGetValue("type", out var typeStr)
-                                                            ?
-                                                            RecordType.A
-                                                            : Enum.TryParse<RecordType>(typeStr.ToString(),
+                                                            ? Enum.TryParse<RecordType>(typeStr.ToString(),
                                                                 out var typeVal)
                                                                 ? typeVal
-                                                                : RecordType.A, RecordClass.INet)
+                                                                : RecordType.A : RecordType.A, RecordClass.INet)
                                                 ]
                                             }
                                             : context.Request.Method.ToUpper() == "POST"
