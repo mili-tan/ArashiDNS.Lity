@@ -116,7 +116,7 @@ namespace ArashiDNS.Lity
                                                 : DNSParser.FromWebBase64(context, Key);
                                         var result = query.CreateResponseInstance();
 
-                                        Console.WriteLine(query.Questions.First());
+                                        //Console.WriteLine(query.Questions.First());
 
                                         if (context.Request.Query.TryGetValue("ecs", out var ecsStr))
                                         {
