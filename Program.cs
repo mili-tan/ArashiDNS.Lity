@@ -107,6 +107,9 @@ namespace ArashiDNS.Lity
                                     "/", async context => { await context.Response.WriteAsync("200 OK"); });
                                 endpoint.Map(
                                     "/" + Path.Trim('/'), DnsRequest);
+                                endpoint.Map(
+                                    "/" + Path.Trim('/') + "/json",
+                                    async context => await DnsRequest(context, isJson: true));
                             });
                         });
                     }).Build();
