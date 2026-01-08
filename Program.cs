@@ -38,12 +38,24 @@ namespace ArashiDNS.Lity
             };
             cmd.HelpOption("-?|-he|--help");
             var isZh = Thread.CurrentThread.CurrentCulture.Name.Contains("zh");
-            var wOption = cmd.Option<int>("-w <TimeOut>", isZh ? "等待回复的超时时间（毫秒）。[3000]" : "Timeout for waiting response (ms). [3000]", CommandOptionType.SingleValue);
-            var lOption = cmd.Option<string>("-l <IPEndPoint>", isZh ? "设置监听地址和端口。[8.8.8.8:5380]" : "Set listen address and port. [8.8.8.8:5380]", CommandOptionType.SingleValue);
-            var sOption = cmd.Option<string>("-s <IPEndPoint>", isZh ? "设置上游地址，为 0.0.0.0 时使用递归。[8.8.8.8:53]" : "Set upstream address, use recursion if 0.0.0.0. [8.8.8.8:53]", CommandOptionType.SingleValue);
-            var pOption = cmd.Option<string>("-p <Path>", isZh ? "查询路径。[/dns-query]" : "Query path. [/dns-query]", CommandOptionType.SingleValue);
-            var kOption = cmd.Option<string>("-k <Key>", isZh ? "查询参数。[dns]" : "Query parameter. [dns]", CommandOptionType.SingleValue);
-            var vOption = cmd.Option<bool>("-v", isZh ? "启用 DNS 响应验证（0x20 和 RRSIG，对于递归）。" : "Enable DNS response validation (0x20 and RRSIG, for recursion).", CommandOptionType.NoValue);
+            var wOption = cmd.Option<int>("-w <TimeOut>",
+                isZh ? "等待回复的超时时间（毫秒）。[3000]" : "Timeout for waiting response (ms). [3000]",
+                CommandOptionType.SingleValue);
+            var lOption = cmd.Option<string>("-l <IPEndPoint>",
+                isZh ? "设置监听地址和端口。[8.8.8.8:5380]" : "Set listen address and port. [8.8.8.8:5380]",
+                CommandOptionType.SingleValue);
+            var sOption = cmd.Option<string>("-s <IPEndPoint>",
+                isZh
+                    ? "设置上游地址，为 0.0.0.0 时使用递归。[8.8.8.8:53]"
+                    : "Set upstream address, use recursion if 0.0.0.0. [8.8.8.8:53]", CommandOptionType.SingleValue);
+            var pOption = cmd.Option<string>("-p <Path>", isZh ? "查询路径。[/dns-query]" : "Query path. [/dns-query]",
+                CommandOptionType.SingleValue);
+            var kOption = cmd.Option<string>("-k <Key>", isZh ? "查询参数。[dns]" : "Query parameter. [dns]",
+                CommandOptionType.SingleValue);
+            var vOption = cmd.Option<bool>("-v",
+                isZh
+                    ? "启用 DNS 响应验证（0x20 和 RRSIG，对于递归）。"
+                    : "Enable DNS response validation (0x20 and RRSIG, for recursion).", CommandOptionType.NoValue);
             cmd.OnExecute(() =>
             {
                 if (wOption.HasValue()) TimeOut = wOption.ParsedValue;
@@ -55,7 +67,7 @@ namespace ArashiDNS.Lity
                 if (Up.Port == 0) Up.Port = 53;
                 if (Listen.Port == 0) Listen.Port = 8053;
 
-                if (Equals(Up.Address, IPAddress.Broadcast)) 
+                if (Equals(Up.Address, IPAddress.Broadcast))
                     CometLite.InitCleanupCacheTask();
 
                 if (Equals(Up.Address, IPAddress.Broadcast) && !File.Exists("./public_suffix_list.dat"))
@@ -94,77 +106,7 @@ namespace ArashiDNS.Lity
                                 endpoint.Map(
                                     "/", async context => { await context.Response.WriteAsync("200 OK"); });
                                 endpoint.Map(
-                                    "/" + Path.Trim('/'), async context =>
-                                    {
-                                        var query = context.Request.Query.TryGetValue("name", out var nameStr)
-                                            ? new DnsMessage()
-                                            {
-                                                Questions =
-                                                [
-                                                    new DnsQuestion(
-                                                        DomainName.Parse(nameStr.ToString()),
-                                                        context.Request.Query.TryGetValue("type", out var typeStr)
-                                                            ? Enum.TryParse(typeStr.ToString(), ignoreCase: true,
-                                                                out RecordType typeVal)
-                                                                ? typeVal
-                                                                : RecordType.A
-                                                            : RecordType.A, RecordClass.INet)
-                                                ]
-                                            }
-                                            : context.Request.Method.ToUpper() == "POST"
-                                                ? await DNSParser.FromPostByteAsync(context)
-                                                : DNSParser.FromWebBase64(context, Key);
-                                        var result = query.CreateResponseInstance();
-
-                                        //Console.WriteLine(query.Questions.First());
-
-                                        if (context.Request.Query.TryGetValue("ecs", out var ecsStr))
-                                        {
-                                            query.IsEDnsEnabled = true;
-                                            query.EDnsOptions?.Options.RemoveAll(x =>
-                                                x.Type == EDnsOptionType.ClientSubnet);
-                                            query.EDnsOptions?.Options.Add(new ClientSubnetOption(24,
-                                                IPAddress.Parse(ecsStr.ToString().Split('/').First())));
-                                        }
-
-                                        if (query.Questions.Any())
-                                        {
-                                            var quest = query.Questions.First();
-
-                                            if (Equals(Up.Address, IPAddress.Broadcast))
-                                                result = await CometLite.DoQuery(query);
-                                            else if (Equals(Up.Address, IPAddress.Any))
-                                            {
-                                                var resolver = RecursiveResolverPool.Get();
-                                                var record = resolver.Resolve<DnsRecordBase>(quest.Name,
-                                                    quest.RecordType,
-                                                    quest.RecordClass);
-
-                                                if (record.Any()) result.AnswerRecords.AddRange(record);
-                                                else result.ReturnCode = ReturnCode.NxDomain;
-
-                                                RecursiveResolverPool.Return(resolver);
-                                            }
-                                            else
-                                            {
-                                                var res = await new DnsClient([Up.Address],
-                                                    [new UdpClientTransport(Up.Port), new TcpClientTransport(Up.Port)],
-                                                    queryTimeout: TimeOut).SendMessageAsync(query);
-
-                                                if (res != null) result = res;
-                                                else result.ReturnCode = ReturnCode.ServerFailure;
-                                            }
-                                        }
-
-                                        var responseBytes = DnsEncoder.Encode(result, transIdEnable: true);
-
-                                        context.Response.ContentType = "application/dns-message";
-                                        context.Response.StatusCode = 200;
-                                        context.Response.ContentLength = responseBytes.Length;
-                                        context.Response.Headers.Server = "ArashiDNSP/Lity";
-
-                                        await context.Response.BodyWriter.WriteAsync(responseBytes);
-                                    });
+                                    "/" + Path.Trim('/'), DnsRequest);
                             });
                         });
                     }).Build();
@@ -172,6 +114,90 @@ namespace ArashiDNS.Lity
                 host.Run();
             });
             cmd.Execute(args);
+        }
+
+        private static async Task DnsRequest(HttpContext context, bool isJson = false)
+        {
+            var query = context.Request.Query.TryGetValue("name", out var nameStr)
+                ? new DnsMessage()
+                {
+                    Questions =
+                    [
+                        new DnsQuestion(DomainName.Parse(nameStr.ToString()),
+                            context.Request.Query.TryGetValue("type", out var typeStr)
+                                ? Enum.TryParse(typeStr.ToString(), ignoreCase: true, out RecordType typeVal)
+                                    ? typeVal
+                                    : RecordType.A
+                                : RecordType.A, RecordClass.INet)
+                    ]
+                }
+                : context.Request.Method.ToUpper() == "POST"
+                    ? await DNSParser.FromPostByteAsync(context)
+                    : DNSParser.FromWebBase64(context, Key);
+            var result = query.CreateResponseInstance();
+
+            //Console.WriteLine(query.Questions.First());
+
+            if (context.Request.Query.TryGetValue("ecs", out var ecsStr))
+            {
+                query.IsEDnsEnabled = true;
+                query.EDnsOptions?.Options.RemoveAll(x => x.Type == EDnsOptionType.ClientSubnet);
+                query.EDnsOptions?.Options.Add(new ClientSubnetOption(24,
+                    IPAddress.Parse(ecsStr.ToString().Split('/').First())));
+            }
+
+            if (query.Questions.Any())
+            {
+                var quest = query.Questions.First();
+
+                if (Equals(Up.Address, IPAddress.Broadcast))
+                    result = await CometLite.DoQuery(query);
+                else if (Equals(Up.Address, IPAddress.Any))
+                {
+                    var resolver = RecursiveResolverPool.Get();
+                    var record = resolver.Resolve<DnsRecordBase>(quest.Name, quest.RecordType, quest.RecordClass);
+
+                    if (record.Any())
+                        result.AnswerRecords.AddRange(record);
+                    else
+                        result.ReturnCode = ReturnCode.NxDomain;
+
+                    RecursiveResolverPool.Return(resolver);
+                }
+                else
+                {
+                    var res = await new DnsClient([Up.Address],
+                            [new UdpClientTransport(Up.Port), new TcpClientTransport(Up.Port)], queryTimeout: TimeOut)
+                        .SendMessageAsync(query);
+
+                    if (res != null)
+                        result = res;
+                    else
+                        result.ReturnCode = ReturnCode.ServerFailure;
+                }
+            }
+
+            if (isJson)
+            {
+                var responseJson = DnsJsonEncoder.Encode(result, true).ToString();
+
+                context.Response.ContentType = "application/json";
+                context.Response.StatusCode = 200;
+                context.Response.Headers.Server = "ArashiDNSP/Lity";
+
+                await context.Response.WriteAsync(responseJson);
+            }
+            else
+            {
+                var responseBytes = DnsEncoder.Encode(result, transIdEnable: true);
+
+                context.Response.ContentType = "application/dns-message";
+                context.Response.StatusCode = 200;
+                context.Response.ContentLength = responseBytes.Length;
+                context.Response.Headers.Server = "ArashiDNSP/Lity";
+
+                await context.Response.BodyWriter.WriteAsync(responseBytes);
+            }
         }
 
         public class ObjectPool<T>
