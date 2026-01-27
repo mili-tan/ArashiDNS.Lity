@@ -17,6 +17,7 @@
     <PackageReference Include="McMaster.Extensions.CommandLineUtils" Version="4.1.1" />
     <PackageReference Include="DeepCloner.Core" Version="0.1.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="System.Runtime.Caching" Version="10.0.2" />
     <PackageReference Include="TldExtract" Version="1.0.0" />
   </ItemGroup>
 

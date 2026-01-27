@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Concurrent;
 using System.Net;
+using System.Runtime.Caching;
 
 namespace ArashiDNS.Lity
 {
@@ -22,7 +23,6 @@ namespace ArashiDNS.Lity
         public static bool Validation = false;
         public static bool RepeatedWait = true;
         public static int RepeatedWaitTime = 10;
-        public static ConcurrentDictionary<string, int> Questions = new();
 
         public static ObjectPool<RecursiveDnsResolver> RecursiveResolverPool = new(() =>
             new RecursiveDnsResolver()
@@ -154,19 +154,23 @@ namespace ArashiDNS.Lity
                     query.EDnsOptions?.Options.Add(new ClientSubnetOption(24, ecs));
                 }
 
-                if (RepeatedWait && Questions.ContainsKey(quest + ecs.ToString()))
+                if (RepeatedWait && MemoryCache.Default.Contains(quest + ecs.ToString()))
                     await Task.Run(async () =>
                     {
                         var wait = 0;
 
-                        while (Questions.ContainsKey(quest + ecs.ToString()) || wait >= RepeatedWaitTime)
+                        while (MemoryCache.Default.Contains(quest + ecs.ToString()) || wait >= RepeatedWaitTime)
                         {
                             wait += 1;
                             await Task.Delay(10);
                         }
                     });
 
-                Questions.TryAdd(quest + ecs.ToString(), 0);
+                MemoryCache.Default.Add(new CacheItem(quest + ecs.ToString(), 0), new CacheItemPolicy()
+                {
+                    AbsoluteExpiration =
+                        DateTimeOffset.Now + TimeSpan.FromSeconds(1)
+                });
 
                 try
                 {
@@ -201,7 +205,7 @@ namespace ArashiDNS.Lity
                     Console.WriteLine(e);
                 }
 
-                Questions.TryRemove(quest + ecs.ToString(), out _);
+                MemoryCache.Default.Remove(quest + ecs.ToString());
             }
 
             if (isJson)
