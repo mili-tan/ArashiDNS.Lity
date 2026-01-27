@@ -21,7 +21,7 @@ namespace ArashiDNS.Lity
         public static string Path = "dns-query";
         public static string Key = "dns";
         public static bool Validation = false;
-        public static bool RepeatedWait = true;
+        public static bool RepeatedWait = false;
         public static int RepeatedWaitTime = 20;
 
         public static ObjectPool<RecursiveDnsResolver> RecursiveResolverPool = new(() =>
