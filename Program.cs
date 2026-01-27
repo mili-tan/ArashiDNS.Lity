@@ -181,11 +181,18 @@ namespace ArashiDNS.Lity
                         }
                     });
 
-                MemoryCache.Default.Add(new CacheItem(quest + ecs.ToString(), 0), new CacheItemPolicy()
+                try
                 {
-                    AbsoluteExpiration =
-                        DateTimeOffset.Now + TimeSpan.FromSeconds(1)
-                });
+                    MemoryCache.Default.Add(new CacheItem(quest + ecs.ToString(), 0), new CacheItemPolicy()
+                    {
+                        AbsoluteExpiration =
+                            DateTimeOffset.Now + TimeSpan.FromSeconds(1)
+                    });
+                }
+                catch (Exception)
+                {
+                    // ignored
+                }
 
                 try
                 {
@@ -220,7 +227,14 @@ namespace ArashiDNS.Lity
                     Console.WriteLine(e);
                 }
 
-                MemoryCache.Default.Remove(quest + ecs.ToString());
+                try
+                {
+                    MemoryCache.Default.Remove(quest + ecs.ToString());
+                }
+                catch (Exception)
+                {
+                    // ignored
+                }
             }
 
             if (isJson)
