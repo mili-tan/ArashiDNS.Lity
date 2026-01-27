@@ -59,6 +59,18 @@ namespace ArashiDNS.Lity
                 isZh
                     ? "启用 DNS 响应验证（0x20 和 RRSIG，对于递归）。"
                     : "Enable DNS response validation (0x20 and RRSIG, for recursion).", CommandOptionType.NoValue);
+
+            var repeatedWaitOption = cmd.Option<bool>("-rw",
+                isZh
+                    ? "启用重复查询等待以防止缓存穿透。"
+                    : "Enable repeated query wait to prevent cache penetration.",
+                CommandOptionType.NoValue);
+            var repeatedWaitTimeOption = cmd.Option<int>("-rwt <Seconds>",
+                isZh
+                    ? "重复查询等待的最大时间（毫秒）。[100]"
+                    : "Maximum time for repeated query wait (ms). [100]",
+                CommandOptionType.SingleValue);
+
             cmd.OnExecute(() =>
             {
                 if (wOption.HasValue()) TimeOut = wOption.ParsedValue;
@@ -69,6 +81,9 @@ namespace ArashiDNS.Lity
                 if (vOption.HasValue()) Validation = vOption.ParsedValue;
                 if (Up.Port == 0) Up.Port = 53;
                 if (Listen.Port == 0) Listen.Port = 8053;
+
+                if (repeatedWaitOption.HasValue()) RepeatedWait = repeatedWaitOption.ParsedValue;
+                if (repeatedWaitTimeOption.HasValue()) RepeatedWaitTime = repeatedWaitTimeOption.ParsedValue / 10;
 
                 if (Equals(Up.Address, IPAddress.Broadcast))
                     CometLite.InitCleanupCacheTask();
