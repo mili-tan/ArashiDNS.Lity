@@ -20,6 +20,8 @@ namespace ArashiDNS.Lity
         public static string Path = "dns-query";
         public static string Key = "dns";
         public static bool Validation = false;
+        public static bool RepeatedWait = true;
+        public static ConcurrentDictionary<string, int> Questions = new();
 
         public static ObjectPool<RecursiveDnsResolver> RecursiveResolverPool = new(() =>
             new RecursiveDnsResolver()
@@ -139,45 +141,66 @@ namespace ArashiDNS.Lity
                     : DNSParser.FromWebBase64(context, Key);
             var result = query.CreateResponseInstance();
 
-            //Console.WriteLine(query.Questions.First());
-
-            if (context.Request.Query.TryGetValue("ecs", out var ecsStr))
-            {
-                query.IsEDnsEnabled = true;
-                query.EDnsOptions?.Options.RemoveAll(x => x.Type == EDnsOptionType.ClientSubnet);
-                query.EDnsOptions?.Options.Add(new ClientSubnetOption(24,
-                    IPAddress.Parse(ecsStr.ToString().Split('/').First())));
-            }
-
             if (query.Questions.Any())
             {
                 var quest = query.Questions.First();
-
-                if (Equals(Up.Address, IPAddress.Broadcast))
-                    result = await CometLite.DoQuery(query);
-                else if (Equals(Up.Address, IPAddress.Any))
+                var ecs = IPAddress.Any;
+                if (context.Request.Query.TryGetValue("ecs", out var ecsStr))
                 {
-                    var resolver = RecursiveResolverPool.Get();
-                    var record = resolver.Resolve<DnsRecordBase>(quest.Name, quest.RecordType, quest.RecordClass);
-
-                    if (record.Any())
-                        result.AnswerRecords.AddRange(record);
-                    else
-                        result.ReturnCode = ReturnCode.NxDomain;
-
-                    RecursiveResolverPool.Return(resolver);
+                    ecs = IPAddress.Parse(ecsStr.ToString().Split('/').First());
+                    query.IsEDnsEnabled = true;
+                    query.EDnsOptions?.Options.RemoveAll(x => x.Type == EDnsOptionType.ClientSubnet);
+                    query.EDnsOptions?.Options.Add(new ClientSubnetOption(24, ecs));
                 }
-                else
+
+                if (RepeatedWait && Questions.ContainsKey(quest + ecs.ToString()))
+                    await Task.Run(async () =>
+                    {
+                        var wait = 0;
+
+                        while (Questions.ContainsKey(quest + ecs.ToString()) || wait >= 10)
+                        {
+                            wait += 1;
+                            await Task.Delay(15);
+                        }
+                    });
+
+                Questions.TryAdd(quest + ecs.ToString(), 0);
+
+                try
                 {
-                    var res = await new DnsClient([Up.Address],
-                            [new UdpClientTransport(Up.Port), new TcpClientTransport(Up.Port)], queryTimeout: TimeOut)
-                        .SendMessageAsync(query);
+                    if (Equals(Up.Address, IPAddress.Broadcast))
+                        result = await CometLite.DoQuery(query);
+                    else if (Equals(Up.Address, IPAddress.Any))
+                    {
+                        var resolver = RecursiveResolverPool.Get();
+                        var record = resolver.Resolve<DnsRecordBase>(quest.Name, quest.RecordType, quest.RecordClass);
 
-                    if (res != null)
-                        result = res;
+                        if (record.Any())
+                            result.AnswerRecords.AddRange(record);
+                        else
+                            result.ReturnCode = ReturnCode.NxDomain;
+
+                        RecursiveResolverPool.Return(resolver);
+                    }
                     else
-                        result.ReturnCode = ReturnCode.ServerFailure;
+                    {
+                        var res = await new DnsClient([Up.Address],
+                                [new UdpClientTransport(Up.Port), new TcpClientTransport(Up.Port)], queryTimeout: TimeOut)
+                            .SendMessageAsync(query);
+
+                        if (res != null)
+                            result = res;
+                        else
+                            result.ReturnCode = ReturnCode.ServerFailure;
+                    }
                 }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e);
+                }
+
+                Questions.TryRemove(quest + ecs.ToString(), out _);
             }
 
             if (isJson)
