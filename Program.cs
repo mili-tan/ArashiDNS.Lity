@@ -21,6 +21,7 @@ namespace ArashiDNS.Lity
         public static string Key = "dns";
         public static bool Validation = false;
         public static bool RepeatedWait = true;
+        public static int RepeatedWaitTime = 10;
         public static ConcurrentDictionary<string, int> Questions = new();
 
         public static ObjectPool<RecursiveDnsResolver> RecursiveResolverPool = new(() =>
@@ -158,10 +159,10 @@ namespace ArashiDNS.Lity
                     {
                         var wait = 0;
 
-                        while (Questions.ContainsKey(quest + ecs.ToString()) || wait >= 10)
+                        while (Questions.ContainsKey(quest + ecs.ToString()) || wait >= RepeatedWaitTime)
                         {
                             wait += 1;
-                            await Task.Delay(15);
+                            await Task.Delay(10);
                         }
                     });
 
