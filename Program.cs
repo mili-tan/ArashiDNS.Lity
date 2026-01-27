@@ -22,7 +22,7 @@ namespace ArashiDNS.Lity
         public static string Key = "dns";
         public static bool Validation = false;
         public static bool RepeatedWait = false;
-        public static int RepeatedWaitTime = 20;
+        public static int RepeatedWaitTime = 4;
 
         public static ObjectPool<RecursiveDnsResolver> RecursiveResolverPool = new(() =>
             new RecursiveDnsResolver()
@@ -83,7 +83,7 @@ namespace ArashiDNS.Lity
                 if (Listen.Port == 0) Listen.Port = 8053;
 
                 if (repeatedWaitOption.HasValue()) RepeatedWait = repeatedWaitOption.ParsedValue;
-                if (repeatedWaitTimeOption.HasValue()) RepeatedWaitTime = repeatedWaitTimeOption.ParsedValue / 5;
+                if (repeatedWaitTimeOption.HasValue()) RepeatedWaitTime = repeatedWaitTimeOption.ParsedValue / 30;
 
                 if (Equals(Up.Address, IPAddress.Broadcast))
                     CometLite.InitCleanupCacheTask();
@@ -177,7 +177,7 @@ namespace ArashiDNS.Lity
                         while (MemoryCache.Default.Contains(quest + ecs.ToString()) || wait >= RepeatedWaitTime)
                         {
                             wait += 1;
-                            await Task.Delay(5);
+                            await Task.Delay(30);
                         }
                     });
 
