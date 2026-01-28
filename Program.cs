@@ -9,20 +9,20 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Concurrent;
 using System.Net;
-using System.Runtime.Caching;
 
 namespace ArashiDNS.Lity
 {
     internal class Program
     {
         public static IPEndPoint Listen = new IPEndPoint(IPAddress.Any, 5380);
-        public static IPEndPoint Up = new IPEndPoint(IPAddress.Any, 53);
+        public static IPEndPoint Up = new IPEndPoint(IPAddress.Parse("8.8.8.8"), 53);
         public static int TimeOut = 3000;
         public static string Path = "dns-query";
         public static string Key = "dns";
         public static bool Validation = false;
         public static bool RepeatedWait = false;
-        public static int RepeatedWaitTime = 4;
+        public static int RepeatedWaitTime = 100;
+        private static readonly ConcurrentDictionary<string, SemaphoreSlim> RequestSemaphores = new ConcurrentDictionary<string, SemaphoreSlim>();
 
         public static ObjectPool<RecursiveDnsResolver> RecursiveResolverPool = new(() =>
             new RecursiveDnsResolver()
@@ -170,29 +170,11 @@ namespace ArashiDNS.Lity
                     query.EDnsOptions?.Options.Add(new ClientSubnetOption(24, ecs));
                 }
 
-                if (RepeatedWait && MemoryCache.Default.Contains(quest + ecs.ToString()))
-                    await Task.Run(async () =>
-                    {
-                        var wait = 0;
-
-                        while (MemoryCache.Default.Contains(quest + ecs.ToString()) || wait >= RepeatedWaitTime)
-                        {
-                            wait += 1;
-                            await Task.Delay(25);
-                        }
-                    });
-
-                try
+                SemaphoreSlim? semaphore = null;
+                if (RepeatedWait)
                 {
-                    MemoryCache.Default.Add(new CacheItem(quest + ecs.ToString(), 0), new CacheItemPolicy()
-                    {
-                        AbsoluteExpiration =
-                            DateTimeOffset.Now + TimeSpan.FromSeconds(1)
-                    });
-                }
-                catch (Exception)
-                {
-                    // ignored
+                    semaphore = RequestSemaphores.GetOrAdd(quest + ecs.ToString(), new SemaphoreSlim(1, 1));
+                    await semaphore.WaitAsync(RepeatedWaitTime);
                 }
 
                 try
@@ -230,7 +212,11 @@ namespace ArashiDNS.Lity
 
                 try
                 {
-                    MemoryCache.Default.Remove(quest + ecs.ToString());
+                    if (RepeatedWait && semaphore != null)
+                    {
+                        semaphore.Release(1);
+                        RequestSemaphores.TryRemove(quest + ecs.ToString(), out _);
+                    }
                 }
                 catch (Exception)
                 {
