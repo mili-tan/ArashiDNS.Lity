@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Concurrent;
 using System.Net;
+using System.Runtime.Caching;
 
 namespace ArashiDNS.Lity
 {
@@ -22,7 +23,7 @@ namespace ArashiDNS.Lity
         public static bool Validation = false;
         public static bool RepeatedWait = false;
         public static int RepeatedWaitTime = 100;
-        private static readonly ConcurrentDictionary<string, SemaphoreSlim> RequestSemaphores = new ConcurrentDictionary<string, SemaphoreSlim>();
+        //private static readonly ConcurrentDictionary<string, SemaphoreSlim> RequestSemaphores = new ConcurrentDictionary<string, SemaphoreSlim>();
 
         public static ObjectPool<RecursiveDnsResolver> RecursiveResolverPool = new(() =>
             new RecursiveDnsResolver()
@@ -173,7 +174,9 @@ namespace ArashiDNS.Lity
                 SemaphoreSlim? semaphore = null;
                 if (RepeatedWait)
                 {
-                    semaphore = RequestSemaphores.GetOrAdd(quest + ecs.ToString(), new SemaphoreSlim(1, 1));
+                    semaphore = (SemaphoreSlim) MemoryCache.Default.AddOrGetExisting(quest + ecs.ToString(),
+                        new SemaphoreSlim(1, 1),
+                        new CacheItemPolicy() {AbsoluteExpiration = DateTimeOffset.UtcNow.AddSeconds(1.5)});
                     await semaphore.WaitAsync(RepeatedWaitTime);
                 }
 
@@ -215,7 +218,7 @@ namespace ArashiDNS.Lity
                     if (RepeatedWait && semaphore != null)
                     {
                         semaphore.Release(1);
-                        RequestSemaphores.TryRemove(quest + ecs.ToString(), out _);
+                        //RequestSemaphores.TryRemove(quest + ecs.ToString(), out _);
                     }
                 }
                 catch (Exception)
