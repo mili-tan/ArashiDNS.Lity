@@ -174,8 +174,15 @@ namespace ArashiDNS.Lity
                 SemaphoreSlim? semaphore = null;
                 if (RepeatedWait)
                 {
-                    semaphore = RequestSemaphores.GetOrAdd(quest + ecs.ToString(), new SemaphoreSlim(1, 1));
-                    await semaphore.WaitAsync(RepeatedWaitTime);
+                    try
+                    {
+                        semaphore = RequestSemaphores.GetOrAdd(quest + ecs.ToString(), new SemaphoreSlim(1, 1));
+                        await semaphore.WaitAsync(RepeatedWaitTime);
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine(e);
+                    }
                 }
 
                 try
