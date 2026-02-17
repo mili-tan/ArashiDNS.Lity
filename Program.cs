@@ -18,13 +18,12 @@ namespace ArashiDNS.Lity
         public static IPEndPoint Listen = new IPEndPoint(IPAddress.Any, 5380);
         public static IPEndPoint Up = new IPEndPoint(IPAddress.Parse("8.8.8.8"), 53);
         public static int TimeOut = 3000;
-        public static bool ZeroId = true;
         public static string Path = "dns-query";
         public static string Key = "dns";
         public static bool Validation = false;
         public static bool RepeatedWait = false;
         public static int RepeatedWaitTime = 100;
-        //private static readonly ConcurrentDictionary<string, SemaphoreSlim> RequestSemaphores = new ConcurrentDictionary<string, SemaphoreSlim>();
+        private static readonly ConcurrentDictionary<string, SemaphoreSlim> RequestSemaphores = new ConcurrentDictionary<string, SemaphoreSlim>();
 
         public static ObjectPool<RecursiveDnsResolver> RecursiveResolverPool = new(() =>
             new RecursiveDnsResolver()
@@ -175,9 +174,7 @@ namespace ArashiDNS.Lity
                 SemaphoreSlim? semaphore = null;
                 if (RepeatedWait)
                 {
-                    semaphore = (SemaphoreSlim) MemoryCache.Default.AddOrGetExisting(quest + ecs.ToString(),
-                        new SemaphoreSlim(1, 1),
-                        new CacheItemPolicy() {AbsoluteExpiration = DateTimeOffset.UtcNow.AddSeconds(1.5)});
+                    semaphore = RequestSemaphores.GetOrAdd(quest + ecs.ToString(), new SemaphoreSlim(1, 1));
                     await semaphore.WaitAsync(RepeatedWaitTime);
                 }
 
@@ -219,7 +216,7 @@ namespace ArashiDNS.Lity
                     if (RepeatedWait && semaphore != null)
                     {
                         semaphore.Release(1);
-                        //RequestSemaphores.TryRemove(quest + ecs.ToString(), out _);
+                        if (semaphore.CurrentCount == 0) RequestSemaphores.TryRemove(quest + ecs.ToString(), out _);
                     }
                 }
                 catch (Exception)
@@ -240,8 +237,8 @@ namespace ArashiDNS.Lity
             }
             else
             {
-                result.TransactionID = ZeroId ? (ushort) 0 : query.TransactionID;
-                var responseBytes = DnsEncoder.Encode(result, transIdEnable: true, id: query.TransactionID);
+                //result.TransactionID = ZeroId ? (ushort) 0 : query.TransactionID;
+                var responseBytes = DnsEncoder.Encode(result, transIdEnable: false);
 
                 context.Response.ContentType = "application/dns-message";
                 context.Response.StatusCode = 200;
