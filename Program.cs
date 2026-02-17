@@ -18,6 +18,7 @@ namespace ArashiDNS.Lity
         public static IPEndPoint Listen = new IPEndPoint(IPAddress.Any, 5380);
         public static IPEndPoint Up = new IPEndPoint(IPAddress.Parse("8.8.8.8"), 53);
         public static int TimeOut = 3000;
+        public static bool ZeroId = true;
         public static string Path = "dns-query";
         public static string Key = "dns";
         public static bool Validation = false;
@@ -239,7 +240,8 @@ namespace ArashiDNS.Lity
             }
             else
             {
-                var responseBytes = DnsEncoder.Encode(result, transIdEnable: true);
+                result.TransactionID = ZeroId ? (ushort) 0 : query.TransactionID;
+                var responseBytes = DnsEncoder.Encode(result, transIdEnable: true, id: query.TransactionID);
 
                 context.Response.ContentType = "application/dns-message";
                 context.Response.StatusCode = 200;
