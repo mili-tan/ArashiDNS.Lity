@@ -237,8 +237,7 @@ namespace ArashiDNS.Lity
             }
             else
             {
-                //result.TransactionID = ZeroId ? (ushort)0 : query.TransactionID;
-                var responseBytes = DnsEncoder.Encode(result, transIdEnable: true, id: query.TransactionID);
+                var responseBytes = DnsEncoder.Encode(result, transIdEnable: false, id: query.TransactionID);
 
                 context.Response.ContentType = "application/dns-message";
                 context.Response.StatusCode = 200;

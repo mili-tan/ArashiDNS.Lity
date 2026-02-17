@@ -18,7 +18,7 @@ namespace Arashi
             dnsMsg.AdditionalRecords?.Clear();
 
             if (id != 0) dnsMsg.TransactionID = id;
-            if (!transIdEnable) dnsMsg.TransactionID = 0;
+            if (!transIdEnable) dnsMsg.TransactionID = (ushort) 0;
 
             dnsMsg.AuthorityRecords.RemoveAll(item =>
                 item.Name.IsSubDomainOf(DomainName.Parse("arashi-msg")) ||
