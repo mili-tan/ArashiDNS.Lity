@@ -23,6 +23,7 @@ namespace ArashiDNS.Lity
         public static bool RepeatedWait = false;
         public static int RepeatedWaitTime = 100;
         public static IPEndPoint Up = new IPEndPoint(IPAddress.Parse("8.8.8.8"), 53);
+        public static Dictionary<string, IPEndPoint> PathUpDictionary = new Dictionary<string, IPEndPoint>();
 
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> RequestSemaphores = new ConcurrentDictionary<string, SemaphoreSlim>();
 
@@ -101,6 +102,19 @@ namespace ArashiDNS.Lity
                             .Result);
                 }
 
+                if (File.Exists("pathup.txt"))
+                    foreach (var item in File.ReadAllLines("pathup.txt"))
+                        if (!string.IsNullOrWhiteSpace(item))
+                            try
+                            {
+                                var sp = item.Split(' ', ',');
+                                PathUpDictionary.Add(sp[0], IPEndPoint.Parse(sp[1]));
+                            }
+                            catch (Exception e)
+                            {
+                                Console.WriteLine(e);
+                            }
+
                 RecursiveResolverPool = new(() =>
                     new RecursiveDnsResolver()
                     {
@@ -133,6 +147,20 @@ namespace ArashiDNS.Lity
                                     "/" + Path.Trim('/') + "/json",
                                     async context =>
                                         await DnsRequest(context, new IPEndPoint(IPAddress.Any, 53), isJson: true));
+
+                                if (PathUpDictionary.Any())
+                                {
+                                    foreach (var item in PathUpDictionary)
+                                    {
+                                        endpoint.Map(
+                                            "/" + item.Key.Trim('/'),
+                                            async context => await DnsRequest(context, item.Value));
+                                        endpoint.Map(
+                                            "/" + item.Key.Trim('/') + "/json",
+                                            async context =>
+                                                await DnsRequest(context, item.Value, isJson: true));
+                                    }
+                                }
                             });
                         });
                     }).Build();
