@@ -16,13 +16,14 @@ namespace ArashiDNS.Lity
     internal class Program
     {
         public static IPEndPoint Listen = new IPEndPoint(IPAddress.Any, 5380);
-        public static IPEndPoint Up = new IPEndPoint(IPAddress.Parse("8.8.8.8"), 53);
         public static int TimeOut = 3000;
         public static string Path = "dns-query";
         public static string Key = "dns";
         public static bool Validation = false;
         public static bool RepeatedWait = false;
         public static int RepeatedWaitTime = 100;
+        public static IPEndPoint Up = new IPEndPoint(IPAddress.Parse("8.8.8.8"), 53);
+
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> RequestSemaphores = new ConcurrentDictionary<string, SemaphoreSlim>();
 
         public static ObjectPool<RecursiveDnsResolver> RecursiveResolverPool = new(() =>
@@ -126,10 +127,12 @@ namespace ArashiDNS.Lity
                                 endpoint.Map(
                                     "/", async context => { await context.Response.WriteAsync("200 OK"); });
                                 endpoint.Map(
-                                    "/" + Path.Trim('/'), DnsRequest);
+                                    "/" + Path.Trim('/'),
+                                    async context => await DnsRequest(context, new IPEndPoint(IPAddress.Any, 53)));
                                 endpoint.Map(
                                     "/" + Path.Trim('/') + "/json",
-                                    async context => await DnsRequest(context, isJson: true));
+                                    async context =>
+                                        await DnsRequest(context, new IPEndPoint(IPAddress.Any, 53), isJson: true));
                             });
                         });
                     }).Build();
@@ -139,7 +142,7 @@ namespace ArashiDNS.Lity
             cmd.Execute(args);
         }
 
-        private static async Task DnsRequest(HttpContext context, bool isJson = false)
+        private static async Task DnsRequest(HttpContext context, IPEndPoint up, bool isJson = false)
         {
             var query = context.Request.Query.TryGetValue("name", out var nameStr)
                 ? new DnsMessage()
@@ -187,9 +190,9 @@ namespace ArashiDNS.Lity
 
                 try
                 {
-                    if (Equals(Up.Address, IPAddress.Broadcast))
+                    if (Equals(up.Address, IPAddress.Broadcast))
                         result = await CometLite.DoQuery(query);
-                    else if (Equals(Up.Address, IPAddress.Any))
+                    else if (Equals(up.Address, IPAddress.Any))
                     {
                         var resolver = RecursiveResolverPool.Get();
                         var record = resolver.Resolve<DnsRecordBase>(quest.Name, quest.RecordType, quest.RecordClass);
@@ -203,8 +206,8 @@ namespace ArashiDNS.Lity
                     }
                     else
                     {
-                        var res = await new DnsClient([Up.Address],
-                                [new UdpClientTransport(Up.Port), new TcpClientTransport(Up.Port)], queryTimeout: TimeOut)
+                        var res = await new DnsClient([up.Address],
+                                [new UdpClientTransport(up.Port), new TcpClientTransport(up.Port)], queryTimeout: TimeOut)
                             .SendMessageAsync(query);
 
                         if (res != null)
