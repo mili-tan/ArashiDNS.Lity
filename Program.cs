@@ -142,11 +142,11 @@ namespace ArashiDNS.Lity
                                     "/", async context => { await context.Response.WriteAsync("200 OK"); });
                                 endpoint.Map(
                                     "/" + Path.Trim('/'),
-                                    async context => await DnsRequest(context, new IPEndPoint(IPAddress.Any, 53)));
+                                    async context => await DnsRequest(context, Up));
                                 endpoint.Map(
                                     "/" + Path.Trim('/') + "/json",
                                     async context =>
-                                        await DnsRequest(context, new IPEndPoint(IPAddress.Any, 53), isJson: true));
+                                        await DnsRequest(context, Up, isJson: true));
 
                                 if (PathUpDictionary.Any())
                                 {
@@ -275,21 +275,21 @@ namespace ArashiDNS.Lity
             }
             else
             {
-                //try
-                //{
-                //    if (UseEcsEcho && result.EDnsOptions != null &&
-                //        result.EDnsOptions.Options.All(x => x.Type != EDnsOptionType.ClientSubnet) &&
-                //        query.EDnsOptions != null &&
-                //        query.EDnsOptions.Options.Any(x => x.Type == EDnsOptionType.ClientSubnet))
-                //    {
-                //        result.EDnsOptions.Options.Add(
-                //            query.EDnsOptions.Options.First(x => x.Type == EDnsOptionType.ClientSubnet));
-                //    }
-                //}
-                //catch (Exception e)
-                //{
-                //    Console.WriteLine(e);
-                //}
+                try
+                {
+                    if (UseEcsEcho && result.EDnsOptions != null &&
+                        result.EDnsOptions.Options.All(x => x.Type != EDnsOptionType.ClientSubnet) &&
+                        query.EDnsOptions != null &&
+                        query.EDnsOptions.Options.Any(x => x.Type == EDnsOptionType.ClientSubnet))
+                    {
+                        result.EDnsOptions.Options.Add(
+                            query.EDnsOptions.Options.First(x => x.Type == EDnsOptionType.ClientSubnet));
+                    }
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e);
+                }
 
                 var responseBytes = DnsEncoder.Encode(result, transIdEnable: false, id: query.TransactionID);
 
