@@ -189,11 +189,11 @@ namespace ArashiDNS.Lity
                     ? await DNSParser.FromPostByteAsync(context)
                     : DNSParser.FromWebBase64(context, Key);
             var result = query.CreateResponseInstance();
+            var ecs = IPAddress.Any;
 
             if (query.Questions.Any())
             {
                 var quest = query.Questions.First();
-                var ecs = IPAddress.Any;
                 if (context.Request.Query.TryGetValue("ecs", out var ecsStr))
                 {
                     ecs = IPAddress.Parse(ecsStr.ToString().Split('/').First());
@@ -278,13 +278,13 @@ namespace ArashiDNS.Lity
                 try
                 {
                     if (UseEcsEcho && result.EDnsOptions != null &&
-                        result.EDnsOptions.Options.All(x => x.Type != EDnsOptionType.ClientSubnet) &&
-                        query.EDnsOptions != null &&
-                        query.EDnsOptions.Options.Any(x => x.Type == EDnsOptionType.ClientSubnet))
-                    {
-                        result.EDnsOptions.Options.Add(
-                            query.EDnsOptions.Options.First(x => x.Type == EDnsOptionType.ClientSubnet));
-                    }
+                        result.EDnsOptions.Options.All(x => x.Type != EDnsOptionType.ClientSubnet))
+                        if (!Equals(ecs, IPAddress.Any))
+                            result.EDnsOptions.Options.Add(new ClientSubnetOption(24, 24, ecs));
+                        else if (query.EDnsOptions != null &&
+                                 query.EDnsOptions.Options.Any(x => x.Type == EDnsOptionType.ClientSubnet))
+                            result.EDnsOptions.Options.Add(
+                                query.EDnsOptions.Options.First(x => x.Type == EDnsOptionType.ClientSubnet));
                 }
                 catch (Exception e)
                 {
