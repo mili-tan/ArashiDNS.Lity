@@ -277,14 +277,15 @@ namespace ArashiDNS.Lity
             {
                 try
                 {
-                    if (UseEcsEcho && result.EDnsOptions != null &&
-                        result.EDnsOptions.Options.All(x => x.Type != EDnsOptionType.ClientSubnet))
-                        if (!Equals(ecs, IPAddress.Any))
-                            result.EDnsOptions.Options.Add(new ClientSubnetOption(24, 24, ecs));
-                        else if (query.EDnsOptions != null &&
-                                 query.EDnsOptions.Options.Any(x => x.Type == EDnsOptionType.ClientSubnet))
-                            result.EDnsOptions.Options.Add(
-                                query.EDnsOptions.Options.First(x => x.Type == EDnsOptionType.ClientSubnet));
+
+                    if(UseEcsEcho)
+                        if (query.EDnsOptions != null &&
+                            query.EDnsOptions.Options.Any(x => x.Type == EDnsOptionType.ClientSubnet))
+                        {
+                            var clientSubnet = (ClientSubnetOption) query.EDnsOptions.Options.First(x => x.Type == EDnsOptionType.ClientSubnet);
+                            result.EDnsOptions?.Options.Clear();
+                            result.EDnsOptions?.Options.Add(new ClientSubnetOption(24, 24, clientSubnet.Address));
+                        }
                 }
                 catch (Exception e)
                 {
