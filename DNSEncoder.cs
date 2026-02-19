@@ -17,6 +17,15 @@ namespace Arashi
             //dnsMsg.EDnsOptions?.Options?.Clear();
             //dnsMsg.AdditionalRecords?.Clear();
 
+            try
+            {
+                dnsMsg.EDnsOptions?.Options.RemoveAll(x => x.Type != EDnsOptionType.ClientSubnet);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+            }
+
             if (id != 0) dnsMsg.TransactionID = id;
             if (!transIdEnable) dnsMsg.TransactionID = (ushort) 0;
 

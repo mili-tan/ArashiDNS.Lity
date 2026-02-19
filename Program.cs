@@ -21,7 +21,7 @@ namespace ArashiDNS.Lity
         public static string Key = "dns";
         public static bool Validation = false;
         public static bool RepeatedWait = false;
-        public static bool UseEcsEcho = false;
+        public static bool UseEcsEcho = true;
         public static int RepeatedWaitTime = 100;
         public static IPEndPoint Up = new IPEndPoint(IPAddress.Parse("8.8.8.8"), 53);
         public static Dictionary<string, IPEndPoint> PathUpDictionary = new Dictionary<string, IPEndPoint>();
