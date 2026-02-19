@@ -25,7 +25,6 @@ namespace ArashiDNS.Lity
         public static int RepeatedWaitTime = 100;
         public static IPEndPoint Up = new IPEndPoint(IPAddress.Parse("8.8.8.8"), 53);
         public static Dictionary<string, IPEndPoint> PathUpDictionary = new Dictionary<string, IPEndPoint>();
-
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> RequestSemaphores = new ConcurrentDictionary<string, SemaphoreSlim>();
 
         public static ObjectPool<RecursiveDnsResolver> RecursiveResolverPool = new(() =>
@@ -276,21 +275,21 @@ namespace ArashiDNS.Lity
             }
             else
             {
-                try
-                {
-                    if (UseEcsEcho && result.EDnsOptions != null &&
-                        result.EDnsOptions.Options.All(x => x.Type != EDnsOptionType.ClientSubnet) &&
-                        query.EDnsOptions != null &&
-                        query.EDnsOptions.Options.Any(x => x.Type == EDnsOptionType.ClientSubnet))
-                    {
-                        result.EDnsOptions.Options.Add(
-                            query.EDnsOptions.Options.First(x => x.Type == EDnsOptionType.ClientSubnet));
-                    }
-                }
-                catch (Exception e)
-                {
-                    Console.WriteLine(e);
-                }
+                //try
+                //{
+                //    if (UseEcsEcho && result.EDnsOptions != null &&
+                //        result.EDnsOptions.Options.All(x => x.Type != EDnsOptionType.ClientSubnet) &&
+                //        query.EDnsOptions != null &&
+                //        query.EDnsOptions.Options.Any(x => x.Type == EDnsOptionType.ClientSubnet))
+                //    {
+                //        result.EDnsOptions.Options.Add(
+                //            query.EDnsOptions.Options.First(x => x.Type == EDnsOptionType.ClientSubnet));
+                //    }
+                //}
+                //catch (Exception e)
+                //{
+                //    Console.WriteLine(e);
+                //}
 
                 var responseBytes = DnsEncoder.Encode(result, transIdEnable: false, id: query.TransactionID);
 

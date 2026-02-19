@@ -13,18 +13,18 @@ namespace Arashi
             dnsMsg.IsRecursionAllowed = true;
             dnsMsg.IsRecursionDesired = true;
             dnsMsg.IsQuery = false;
-            //dnsMsg.IsEDnsEnabled = false;
-            //dnsMsg.EDnsOptions?.Options?.Clear();
-            //dnsMsg.AdditionalRecords?.Clear();
+            dnsMsg.IsEDnsEnabled = false;
+            dnsMsg.EDnsOptions?.Options?.Clear();
+            dnsMsg.AdditionalRecords?.Clear();
 
-            try
-            {
-                dnsMsg.EDnsOptions?.Options.RemoveAll(x => x.Type != EDnsOptionType.ClientSubnet);
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e);
-            }
+            //try
+            //{
+            //    dnsMsg.EDnsOptions?.Options.RemoveAll(x => x.Type != EDnsOptionType.ClientSubnet);
+            //}
+            //catch (Exception e)
+            //{
+            //    Console.WriteLine(e);
+            //}
 
             if (id != 0) dnsMsg.TransactionID = id;
             if (!transIdEnable) dnsMsg.TransactionID = (ushort) 0;
