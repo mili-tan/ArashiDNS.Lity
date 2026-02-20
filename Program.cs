@@ -21,6 +21,7 @@ namespace ArashiDNS.Lity
         public static string Key = "dns";
         public static bool Validation = false;
         public static bool RepeatedWait = true;
+        public static bool RepeatedWaitHard = false;
         public static bool UseEcsEcho = true;
         public static int RepeatedWaitTime = 100;
         public static IPEndPoint Up = new IPEndPoint(IPAddress.Parse("8.8.8.8"), 53);
@@ -205,19 +206,36 @@ namespace ArashiDNS.Lity
                 SemaphoreSlim? semaphore = null;
                 if (RepeatedWait)
                 {
-                    try
+                    if (RepeatedWaitHard)
                     {
-                        semaphore = RequestSemaphores.GetOrAdd(quest + ecs.ToString(), new SemaphoreSlim(1, 1));
-                        await semaphore.WaitAsync(RepeatedWaitTime);
+                        if (MemoryCache.Default.Contains(quest + ecs.ToString())) await Task.Delay(100);
                     }
-                    catch (Exception e)
+                    else
                     {
-                        Console.WriteLine(e);
+                        try
+                        {
+                            semaphore = RequestSemaphores.GetOrAdd(quest + ecs.ToString(), new SemaphoreSlim(1, 1));
+                            await semaphore.WaitAsync(RepeatedWaitTime);
+                        }
+                        catch (Exception e)
+                        {
+                            Console.WriteLine(e);
+                        }
                     }
                 }
 
                 try
                 {
+                    if (RepeatedWaitHard && RepeatedWait)
+                        try
+                        {
+                            MemoryCache.Default.Add(quest + ecs.ToString(), true, DateTimeOffset.Now.AddSeconds(1));
+                        }
+                        catch (Exception e)
+                        {
+                            // ignored
+                        }
+
                     if (Equals(up.Address, IPAddress.Broadcast))
                         result = await CometLite.DoQuery(query);
                     else if (Equals(up.Address, IPAddress.Any))
@@ -251,11 +269,14 @@ namespace ArashiDNS.Lity
 
                 try
                 {
-                    if (RepeatedWait && semaphore != null)
-                    {
-                        semaphore.Release(1);
-                        if (semaphore.CurrentCount == 0) RequestSemaphores.TryRemove(quest + ecs.ToString(), out _);
-                    }
+                    if (RepeatedWait)
+                        if (RepeatedWaitHard)
+                            MemoryCache.Default.Remove(quest + ecs.ToString());
+                        else if (semaphore != null)
+                        {
+                            semaphore.Release(1);
+                            if (semaphore.CurrentCount == 0) RequestSemaphores.TryRemove(quest + ecs.ToString(), out _);
+                        }
                 }
                 catch (Exception)
                 {
