@@ -63,10 +63,10 @@ namespace ArashiDNS.Lity
                     ? "启用 DNS 响应验证（0x20 和 RRSIG，对于递归）。"
                     : "Enable DNS response validation (0x20 and RRSIG, for recursion).", CommandOptionType.NoValue);
 
-            var repeatedWaitOption = cmd.Option<bool>("-rw",
+            var noRepeatedWaitOption = cmd.Option<bool>("-nrw",
                 isZh
-                    ? "启用重复查询等待以防止缓存穿透。"
-                    : "Enable repeated query wait to prevent cache penetration.",
+                    ? "不启用重复查询等待以防止缓存穿透。"
+                    : "Disabled repeated query wait to prevent cache penetration.",
                 CommandOptionType.NoValue);
             var repeatedWaitTimeOption = cmd.Option<int>("-rwt <Seconds>",
                 isZh
@@ -85,7 +85,7 @@ namespace ArashiDNS.Lity
                 if (Up.Port == 0) Up.Port = 53;
                 if (Listen.Port == 0) Listen.Port = 8053;
 
-                if (repeatedWaitOption.HasValue()) RepeatedWait = repeatedWaitOption.ParsedValue;
+                if (noRepeatedWaitOption.HasValue()) RepeatedWait = !noRepeatedWaitOption.ParsedValue;
                 if (repeatedWaitTimeOption.HasValue()) RepeatedWaitTime = repeatedWaitTimeOption.ParsedValue / 25;
                 if (RepeatedWaitTime == 0) RepeatedWaitTime = 1;
 
