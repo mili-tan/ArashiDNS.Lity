@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Runtime.Caching;
 
 namespace ArashiDNS.Lity
@@ -116,6 +117,22 @@ namespace ArashiDNS.Lity
                                 Console.WriteLine(e);
                             }
 
+                var timer = new System.Timers.Timer(1000);
+                timer.Elapsed += (sender, e) =>
+                {
+                    try
+                    {
+                        if (!Equals(Up.Address, IPAddress.Loopback) || PortIsUse(Up.Port)) return;
+                        Console.WriteLine($"Up {Up} is unreachable. Exiting...");
+                        Environment.Exit(1);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error checking Up {Up}: {ex.Message}. Exiting...");
+                    }
+                };
+                timer.Start();
+
                 RecursiveResolverPool = new(() =>
                     new RecursiveDnsResolver()
                     {
@@ -170,6 +187,23 @@ namespace ArashiDNS.Lity
             });
             cmd.Execute(args);
         }
+
+        public static bool PortIsUse(int port)
+        {
+            try
+            {
+                var ipEndPointsTcp = IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners();
+                var ipEndPointsUdp = IPGlobalProperties.GetIPGlobalProperties().GetActiveUdpListeners();
+
+                return ipEndPointsTcp.Any(endPoint => endPoint.Port == port)
+                       || ipEndPointsUdp.Any(endPoint => endPoint.Port == port);
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
 
         private static async Task DnsRequest(HttpContext context, IPEndPoint up, bool isJson = false)
         {
