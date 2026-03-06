@@ -24,6 +24,7 @@ namespace ArashiDNS.Lity
         public static bool RepeatedWait = true;
         public static bool RepeatedWaitHard = false;
         public static bool UseEcsEcho = true;
+        public static bool CheckPort = true;
         public static int RepeatedWaitTime = 100;
         public static IPEndPoint Up = new IPEndPoint(IPAddress.Parse("8.8.8.8"), 53);
         public static Dictionary<string, IPEndPoint> PathUpDictionary = new Dictionary<string, IPEndPoint>();
@@ -117,21 +118,24 @@ namespace ArashiDNS.Lity
                                 Console.WriteLine(e);
                             }
 
-                var timer = new System.Timers.Timer(1000);
-                timer.Elapsed += (sender, e) =>
+                if (CheckPort)
                 {
-                    try
+                    var timer = new System.Timers.Timer(1000);
+                    timer.Elapsed += (sender, e) =>
                     {
-                        if (!Equals(Up.Address, IPAddress.Loopback) || PortIsUse(Up.Port)) return;
-                        Console.WriteLine($"Up {Up} is unreachable. Exiting...");
-                        Environment.Exit(1);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Error checking Up {Up}: {ex.Message}. Exiting...");
-                    }
-                };
-                timer.Start();
+                        try
+                        {
+                            if (!Equals(Up.Address, IPAddress.Loopback) || PortIsUse(Up.Port)) return;
+                            Console.WriteLine($"Up {Up} is unreachable. Exiting...");
+                            Environment.Exit(1);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Error checking Up {Up}: {ex.Message}. Exiting...");
+                        }
+                    };
+                    timer.Start();
+                }
 
                 RecursiveResolverPool = new(() =>
                     new RecursiveDnsResolver()
