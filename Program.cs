@@ -31,6 +31,9 @@ namespace ArashiDNS.Lity
         public static Dictionary<string, IPEndPoint> PathUpDictionary = new Dictionary<string, IPEndPoint>();
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> RequestSemaphores = new ConcurrentDictionary<string, SemaphoreSlim>();
 
+        private static readonly int MinTTL = 120;
+        private static readonly int MaxTTL = 86400;
+
         public static ObjectPool<RecursiveDnsResolver> RecursiveResolverPool = new(() =>
             new RecursiveDnsResolver()
             {
@@ -315,6 +318,11 @@ namespace ArashiDNS.Lity
 
                     try
                     {
+                        if (UseCache && result.ReturnCode == ReturnCode.NoError)
+                            MemoryCache.Default.Add(new CacheItem("C:" + quest + ecs, result),
+                                new CacheItemPolicy()
+                                    {AbsoluteExpiration = DateTime.UtcNow.AddSeconds(GetTtl(result))});
+
                         if (RepeatedWait)
                             if (RepeatedWaitHard)
                                 MemoryCache.Default.Remove(quest + ecs.ToString());
@@ -369,6 +377,15 @@ namespace ArashiDNS.Lity
 
                 await context.Response.BodyWriter.WriteAsync(responseBytes);
             }
+        }
+
+        private static int GetTtl(DnsMessage message)
+        {
+            if (!message.AnswerRecords.Any()) return MinTTL;
+            var ttl = message.AnswerRecords.Min(x => x.TimeToLive);
+            if (ttl < MinTTL) ttl = MinTTL;
+            if (ttl > MaxTTL) ttl = MaxTTL;
+            return ttl;
         }
 
         private static IPAddress GetIpFromDns(DnsMessage dnsMsg)
