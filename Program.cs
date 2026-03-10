@@ -240,6 +240,7 @@ namespace ArashiDNS.Lity
                     query.EDnsOptions?.Options.RemoveAll(x => x.Type == EDnsOptionType.ClientSubnet);
                     query.EDnsOptions?.Options.Add(new ClientSubnetOption(24, ecs));
                 }
+                else ecs = GetIpFromDns(query);
 
                 SemaphoreSlim? semaphore = null;
                 if (RepeatedWait)
@@ -267,7 +268,7 @@ namespace ArashiDNS.Lity
                     if (RepeatedWaitHard && RepeatedWait)
                         try
                         {
-                            MemoryCache.Default.Add("W:" + quest + ecs.ToString(), true, DateTimeOffset.Now.AddSeconds(1));
+                            MemoryCache.Default.Add("W:" + quest + ecs, true, DateTimeOffset.Now.AddSeconds(1));
                         }
                         catch (Exception e)
                         {
@@ -359,6 +360,25 @@ namespace ArashiDNS.Lity
                 context.Response.Headers.Server = "ArashiDNSP/Lity";
 
                 await context.Response.BodyWriter.WriteAsync(responseBytes);
+            }
+        }
+
+        private static IPAddress GetIpFromDns(DnsMessage dnsMsg)
+        {
+            try
+            {
+                if (dnsMsg is { IsEDnsEnabled: false }) return IPAddress.Any;
+                foreach (var eDnsOptionBase in dnsMsg.EDnsOptions.Options.ToList())
+                {
+                    if (eDnsOptionBase is ClientSubnetOption option)
+                        return option.Address;
+                }
+
+                return IPAddress.Any;
+            }
+            catch (Exception)
+            {
+                return IPAddress.Any;
             }
         }
 
