@@ -120,7 +120,7 @@ namespace ArashiDNS.Lity
 
                 if (CheckPort)
                 {
-                    var timer = new System.Timers.Timer(1000);
+                    var timer = new System.Timers.Timer(60000);
                     timer.Elapsed += (sender, e) =>
                     {
                         try
