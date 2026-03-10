@@ -246,7 +246,7 @@ namespace ArashiDNS.Lity
                 {
                     if (RepeatedWaitHard)
                     {
-                        if (MemoryCache.Default.Contains(quest + ecs.ToString())) await Task.Delay(100);
+                        if (MemoryCache.Default.Contains("W:" + quest + ecs)) await Task.Delay(100);
                     }
                     else
                     {
@@ -267,7 +267,7 @@ namespace ArashiDNS.Lity
                     if (RepeatedWaitHard && RepeatedWait)
                         try
                         {
-                            MemoryCache.Default.Add(quest + ecs.ToString(), true, DateTimeOffset.Now.AddSeconds(1));
+                            MemoryCache.Default.Add("W:" + quest + ecs.ToString(), true, DateTimeOffset.Now.AddSeconds(1));
                         }
                         catch (Exception e)
                         {
