@@ -24,6 +24,7 @@ namespace ArashiDNS.Lity
         public static bool RepeatedWait = true;
         public static bool RepeatedWaitHard = false;
         public static bool UseEcsEcho = true;
+        public static bool UseCache = false;
         public static bool CheckPort = true;
         public static int RepeatedWaitTime = 100;
         public static IPEndPoint Up = new IPEndPoint(IPAddress.Parse("8.8.8.8"), 53);
@@ -242,84 +243,91 @@ namespace ArashiDNS.Lity
                 }
                 else ecs = GetIpFromDns(query);
 
-                SemaphoreSlim? semaphore = null;
-                if (RepeatedWait)
+                if (UseCache && MemoryCache.Default.Contains("C:" + quest + ecs))
                 {
-                    if (RepeatedWaitHard)
-                    {
-                        if (MemoryCache.Default.Contains("W:" + quest + ecs)) await Task.Delay(100);
-                    }
-                    else
-                    {
-                        try
-                        {
-                            semaphore = RequestSemaphores.GetOrAdd(quest + ecs.ToString(), new SemaphoreSlim(1, 1));
-                            await semaphore.WaitAsync(RepeatedWaitTime);
-                        }
-                        catch (Exception e)
-                        {
-                            Console.WriteLine(e);
-                        }
-                    }
+                    result.AnswerRecords.AddRange(((DnsMessage) MemoryCache.Default.Get("C:" + quest + ecs))
+                        .AnswerRecords.ToArray());
                 }
-
-                try
+                else
                 {
-                    if (RepeatedWaitHard && RepeatedWait)
-                        try
-                        {
-                            MemoryCache.Default.Add("W:" + quest + ecs, true, DateTimeOffset.Now.AddSeconds(1));
-                        }
-                        catch (Exception e)
-                        {
-                            // ignored
-                        }
-
-                    if (Equals(up.Address, IPAddress.Broadcast))
-                        result = await CometLite.DoQuery(query);
-                    else if (Equals(up.Address, IPAddress.Any))
-                    {
-                        var resolver = RecursiveResolverPool.Get();
-                        var record = resolver.Resolve<DnsRecordBase>(quest.Name, quest.RecordType, quest.RecordClass);
-
-                        if (record.Any())
-                            result.AnswerRecords.AddRange(record);
-                        else
-                            result.ReturnCode = ReturnCode.NxDomain;
-
-                        RecursiveResolverPool.Return(resolver);
-                    }
-                    else
-                    {
-                        var res = await new DnsClient([up.Address],
-                                [new UdpClientTransport(up.Port), new TcpClientTransport(up.Port)], queryTimeout: TimeOut)
-                            .SendMessageAsync(query);
-
-                        if (res != null)
-                            result = res;
-                        else
-                            result.ReturnCode = ReturnCode.ServerFailure;
-                    }
-                }
-                catch (Exception e)
-                {
-                    Console.WriteLine(e);
-                }
-
-                try
-                {
+                    SemaphoreSlim? semaphore = null;
                     if (RepeatedWait)
+                    {
                         if (RepeatedWaitHard)
-                            MemoryCache.Default.Remove(quest + ecs.ToString());
-                        else if (semaphore != null)
                         {
-                            semaphore.Release(1);
-                            if (semaphore.CurrentCount == 0) RequestSemaphores.TryRemove(quest + ecs.ToString(), out _);
+                            if (MemoryCache.Default.Contains("W:" + quest + ecs)) await Task.Delay(100);
                         }
-                }
-                catch (Exception)
-                {
-                    // ignored
+                        else
+                        {
+                            try
+                            {
+                                semaphore = RequestSemaphores.GetOrAdd(quest + ecs.ToString(), new SemaphoreSlim(1, 1));
+                                await semaphore.WaitAsync(RepeatedWaitTime);
+                            }
+                            catch (Exception e)
+                            {
+                                Console.WriteLine(e);
+                            }
+                        }
+                    }
+                    try
+                    {
+                        if (RepeatedWaitHard && RepeatedWait)
+                            try
+                            {
+                                MemoryCache.Default.Add("W:" + quest + ecs, true, DateTimeOffset.Now.AddSeconds(1));
+                            }
+                            catch (Exception e)
+                            {
+                                // ignored
+                            }
+
+                        if (Equals(up.Address, IPAddress.Broadcast))
+                            result = await CometLite.DoQuery(query);
+                        else if (Equals(up.Address, IPAddress.Any))
+                        {
+                            var resolver = RecursiveResolverPool.Get();
+                            var record = resolver.Resolve<DnsRecordBase>(quest.Name, quest.RecordType, quest.RecordClass);
+
+                            if (record.Any())
+                                result.AnswerRecords.AddRange(record);
+                            else
+                                result.ReturnCode = ReturnCode.NxDomain;
+
+                            RecursiveResolverPool.Return(resolver);
+                        }
+                        else
+                        {
+                            var res = await new DnsClient([up.Address],
+                                    [new UdpClientTransport(up.Port), new TcpClientTransport(up.Port)], queryTimeout: TimeOut)
+                                .SendMessageAsync(query);
+
+                            if (res != null)
+                                result = res;
+                            else
+                                result.ReturnCode = ReturnCode.ServerFailure;
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine(e);
+                    }
+
+                    try
+                    {
+                        if (RepeatedWait)
+                            if (RepeatedWaitHard)
+                                MemoryCache.Default.Remove(quest + ecs.ToString());
+                            else if (semaphore != null)
+                            {
+                                semaphore.Release(1);
+                                if (semaphore.CurrentCount == 0) RequestSemaphores.TryRemove(quest + ecs.ToString(), out _);
+                            }
+                    }
+                    catch (Exception)
+                    {
+                        // ignored
+                    }
                 }
             }
 
