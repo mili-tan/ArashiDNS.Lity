@@ -25,14 +25,26 @@ namespace ArashiDNS.Lity
         public static bool RepeatedWaitHard = false;
         public static bool UseEcsEcho = true;
         public static bool UseCache = false;
+        public static bool UseDictCache = false;
         public static bool CheckPort = true;
         public static int RepeatedWaitTime = 100;
         public static IPEndPoint Up = new IPEndPoint(IPAddress.Parse("8.8.8.8"), 53);
         public static Dictionary<string, IPEndPoint> PathUpDictionary = new Dictionary<string, IPEndPoint>();
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> RequestSemaphores = new ConcurrentDictionary<string, SemaphoreSlim>();
 
-        private static readonly int MinTTL = 120;
-        private static readonly int MaxTTL = 86400;
+        public static readonly int MinTTL = 120;
+        public static readonly int MaxTTL = 86400;
+
+        public static ConcurrentDictionary<(DnsQuestion, IPAddress), CacheEntry> CacheEntries = new();
+        public class CacheEntry
+        {
+            public DnsMessage ResponseData { get; set; }
+            public DateTime ExpiryTime { get; set; } // 过期时间（基于TTL）
+        }
+
+        public static Timer CleanupTimer;
+        public static TimeSpan CleanupInterval = TimeSpan.FromHours(1);
+        public static TimeSpan StaleThreshold = TimeSpan.FromHours(12);
 
         public static ObjectPool<RecursiveDnsResolver> RecursiveResolverPool = new(() =>
             new RecursiveDnsResolver()
@@ -121,6 +133,23 @@ namespace ArashiDNS.Lity
                             {
                                 Console.WriteLine(e);
                             }
+
+                if (UseDictCache)
+                    CleanupTimer = new Timer(c =>
+                    {
+                        var threshold = DateTime.UtcNow.Add(-StaleThreshold);
+                        var expiredKeys = CacheEntries
+                            .Where(kvp => kvp.Value.ExpiryTime < threshold)
+                            .Select(kvp => kvp.Key)
+                            .ToList();
+
+                        foreach (var key in expiredKeys)
+                        {
+                            CacheEntries.TryRemove(key, out _);
+                        }
+
+                        Console.WriteLine($"C：{expiredKeys.Count} / {CacheEntries.Count}");
+                    }, null, CleanupInterval, CleanupInterval);
 
                 if (CheckPort)
                 {
