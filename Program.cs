@@ -24,8 +24,8 @@ namespace ArashiDNS.Lity
         public static bool RepeatedWait = true;
         public static bool RepeatedWaitHard = false;
         public static bool UseEcsEcho = true;
-        public static bool UseCache = true;
-        public static bool UseDictCache = true;
+        public static bool UseCache = false;
+        public static bool UseOpCache = false;
         public static bool CheckPort = true;
         public static int RepeatedWaitTime = 100;
         public static IPEndPoint Up = new IPEndPoint(IPAddress.Parse("8.8.8.8"), 53);
@@ -134,7 +134,7 @@ namespace ArashiDNS.Lity
                                 Console.WriteLine(e);
                             }
 
-                if (UseDictCache)
+                if (UseOpCache)
                     CleanupTimer = new Timer(c =>
                     {
                         var threshold = DateTime.UtcNow.Add(-StaleThreshold);
@@ -283,10 +283,10 @@ namespace ArashiDNS.Lity
                     Console.WriteLine(e);
                 }
 
-                if (UseCache && !UseDictCache && MemoryCache.Default.Contains("C:" + quest + ecs))
+                if (UseCache && !UseOpCache && MemoryCache.Default.Contains("C:" + quest + ecs))
                     result.AnswerRecords.AddRange(((DnsMessage) MemoryCache.Default.Get("C:" + quest + ecs))
                         .AnswerRecords.ToArray());
-                else if (UseCache && UseDictCache && CacheEntries.TryGetValue((quest, ecs), out var cacheEntry))
+                else if (UseCache && UseOpCache && CacheEntries.TryGetValue((quest, ecs), out var cacheEntry))
                 {
                     var ttl = (int) (cacheEntry.ExpiryTime - DateTime.UtcNow).TotalSeconds;
                     if (ttl < 30) ttl = 30;
@@ -349,7 +349,7 @@ namespace ArashiDNS.Lity
 
                         if (UseCache && result.ReturnCode == ReturnCode.NoError)
                         {
-                            if (!UseDictCache)
+                            if (!UseOpCache)
                                 MemoryCache.Default.Add(new CacheItem("C:" + quest + ecs, result),
                                     new CacheItemPolicy()
                                         {AbsoluteExpiration = DateTime.UtcNow.AddSeconds(GetTtl(result))});
