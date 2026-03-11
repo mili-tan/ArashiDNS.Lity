@@ -261,19 +261,27 @@ namespace ArashiDNS.Lity
                     ? await DNSParser.FromPostByteAsync(context)
                     : DNSParser.FromWebBase64(context, Key);
             var result = query.CreateResponseInstance();
-            var ecs = IPAddress.Any;
 
             if (query.Questions.Any())
             {
+                var ecs = IPAddress.Any;
                 var quest = query.Questions.First();
-                if (context.Request.Query.TryGetValue("ecs", out var ecsStr))
+
+                try
                 {
-                    ecs = IPAddress.Parse(ecsStr.ToString().Split('/').First());
-                    query.IsEDnsEnabled = true;
-                    query.EDnsOptions?.Options.RemoveAll(x => x.Type == EDnsOptionType.ClientSubnet);
-                    query.EDnsOptions?.Options.Add(new ClientSubnetOption(24, ecs));
+                    if (context.Request.Query.TryGetValue("ecs", out var ecsStr))
+                    {
+                        ecs = IPAddress.Parse(ecsStr.ToString().Split('/').First());
+                        query.IsEDnsEnabled = true;
+                        query.EDnsOptions?.Options.RemoveAll(x => x.Type == EDnsOptionType.ClientSubnet);
+                        query.EDnsOptions?.Options.Add(new ClientSubnetOption(24, ecs));
+                    }
+                    else ecs = GetIpFromDns(query);
                 }
-                else ecs = GetIpFromDns(query);
+                catch (Exception e)
+                {
+                    Console.WriteLine(e);
+                }
 
                 if (UseCache && !UseDictCache && MemoryCache.Default.Contains("C:" + quest + ecs))
                     result.AnswerRecords.AddRange(((DnsMessage) MemoryCache.Default.Get("C:" + quest + ecs))
@@ -314,31 +322,7 @@ namespace ArashiDNS.Lity
                                 // ignored
                             }
 
-                        if (Equals(up.Address, IPAddress.Broadcast))
-                            result = await CometLite.DoQuery(query);
-                        else if (Equals(up.Address, IPAddress.Any))
-                        {
-                            var resolver = RecursiveResolverPool.Get();
-                            var record = resolver.Resolve<DnsRecordBase>(quest.Name, quest.RecordType, quest.RecordClass);
-
-                            if (record.Any())
-                                result.AnswerRecords.AddRange(record);
-                            else
-                                result.ReturnCode = ReturnCode.NxDomain;
-
-                            RecursiveResolverPool.Return(resolver);
-                        }
-                        else
-                        {
-                            var res = await new DnsClient([up.Address],
-                                    [new UdpClientTransport(up.Port), new TcpClientTransport(up.Port)], queryTimeout: TimeOut)
-                                .SendMessageAsync(query);
-
-                            if (res != null)
-                                result = res;
-                            else
-                                result.ReturnCode = ReturnCode.ServerFailure;
-                        }
+                        result = await DoQuery(query, up);
                     }
                     catch (Exception e)
                     {
@@ -413,6 +397,40 @@ namespace ArashiDNS.Lity
 
                 await context.Response.BodyWriter.WriteAsync(responseBytes);
             }
+        }
+
+        private static async Task<DnsMessage> DoQuery(DnsMessage query, IPEndPoint up)
+        {
+            var result = query.CreateResponseInstance();
+            var quest = query.Questions.First();
+
+            if (Equals(up.Address, IPAddress.Broadcast))
+                result = await CometLite.DoQuery(query);
+            else if (Equals(up.Address, IPAddress.Any))
+            {
+                var resolver = RecursiveResolverPool.Get();
+                var record = resolver.Resolve<DnsRecordBase>(quest.Name, quest.RecordType, quest.RecordClass);
+
+                if (record.Any())
+                    result.AnswerRecords.AddRange(record);
+                else
+                    result.ReturnCode = ReturnCode.NxDomain;
+
+                RecursiveResolverPool.Return(resolver);
+            }
+            else
+            {
+                var res = await new DnsClient([up.Address],
+                        [new UdpClientTransport(up.Port), new TcpClientTransport(up.Port)], queryTimeout: TimeOut)
+                    .SendMessageAsync(query);
+
+                if (res != null)
+                    result = res;
+                else
+                    result.ReturnCode = ReturnCode.ServerFailure;
+            }
+
+            return result;
         }
 
         private static int GetTtl(DnsMessage message)
