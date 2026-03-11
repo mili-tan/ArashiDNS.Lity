@@ -355,8 +355,8 @@ namespace ArashiDNS.Lity
                                     new CacheItemPolicy()
                                         {AbsoluteExpiration = DateTime.UtcNow.AddSeconds(GetTtl(result))});
                             else
-                                CacheEntries.TryAdd((quest, ecs),
-                                    new CacheEntry(result, DateTime.UtcNow.AddSeconds(GetTtl(result))));
+                                CacheEntries[(quest, ecs)] =
+                                    new CacheEntry(result, DateTime.UtcNow.AddSeconds(GetTtl(result)));
                         }
 
                         if (RepeatedWait)
