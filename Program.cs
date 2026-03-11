@@ -36,13 +36,13 @@ namespace ArashiDNS.Lity
         public static readonly int MaxTTL = 86400;
 
         public static ConcurrentDictionary<(DnsQuestion, IPAddress), CacheEntry> CacheEntries = new();
-        public class CacheEntry
+        public class CacheEntry(DnsMessage responseData, DateTime expiryTime)
         {
-            public DnsMessage ResponseData { get; set; }
-            public DateTime ExpiryTime { get; set; } 
+            public DnsMessage ResponseData { get; set; } = responseData;
+            public DateTime ExpiryTime { get; set; } = expiryTime;
         }
 
-        public static Timer CleanupTimer;
+        public static Timer? CleanupTimer;
         public static TimeSpan CleanupInterval = TimeSpan.FromHours(1);
         public static TimeSpan StaleThreshold = TimeSpan.FromHours(12);
 
@@ -276,10 +276,10 @@ namespace ArashiDNS.Lity
                 else ecs = GetIpFromDns(query);
 
                 if (UseCache && !UseDictCache && MemoryCache.Default.Contains("C:" + quest + ecs))
-                {
                     result.AnswerRecords.AddRange(((DnsMessage) MemoryCache.Default.Get("C:" + quest + ecs))
                         .AnswerRecords.ToArray());
-                }
+                else if (UseCache && UseDictCache && CacheEntries.TryGetValue((quest, ecs), out var cacheEntry))
+                    result.AnswerRecords.AddRange(cacheEntry.ResponseData.AnswerRecords.ToArray());
                 else
                 {
                     SemaphoreSlim? semaphore = null;
@@ -347,10 +347,17 @@ namespace ArashiDNS.Lity
 
                     try
                     {
-                        if (UseCache && !UseDictCache && result.ReturnCode == ReturnCode.NoError)
-                            MemoryCache.Default.Add(new CacheItem("C:" + quest + ecs, result),
-                                new CacheItemPolicy()
-                                    {AbsoluteExpiration = DateTime.UtcNow.AddSeconds(GetTtl(result))});
+
+                        if (UseCache && result.ReturnCode == ReturnCode.NoError)
+                        {
+                            if (!UseDictCache)
+                                MemoryCache.Default.Add(new CacheItem("C:" + quest + ecs, result),
+                                    new CacheItemPolicy()
+                                        {AbsoluteExpiration = DateTime.UtcNow.AddSeconds(GetTtl(result))});
+                            else
+                                CacheEntries.TryAdd((quest, ecs),
+                                    new CacheEntry(result, DateTime.UtcNow.AddSeconds(GetTtl(result))));
+                        }
 
                         if (RepeatedWait)
                             if (RepeatedWaitHard)
