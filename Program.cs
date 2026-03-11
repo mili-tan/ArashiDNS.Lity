@@ -24,8 +24,8 @@ namespace ArashiDNS.Lity
         public static bool RepeatedWait = true;
         public static bool RepeatedWaitHard = false;
         public static bool UseEcsEcho = true;
-        public static bool UseCache = false;
-        public static bool UseDictCache = false;
+        public static bool UseCache = true;
+        public static bool UseDictCache = true;
         public static bool CheckPort = true;
         public static int RepeatedWaitTime = 100;
         public static IPEndPoint Up = new IPEndPoint(IPAddress.Parse("8.8.8.8"), 53);
@@ -287,7 +287,22 @@ namespace ArashiDNS.Lity
                     result.AnswerRecords.AddRange(((DnsMessage) MemoryCache.Default.Get("C:" + quest + ecs))
                         .AnswerRecords.ToArray());
                 else if (UseCache && UseDictCache && CacheEntries.TryGetValue((quest, ecs), out var cacheEntry))
-                    result.AnswerRecords.AddRange(cacheEntry.ResponseData.AnswerRecords.ToArray());
+                {
+                    var ttl = (int) (cacheEntry.ExpiryTime - DateTime.UtcNow).TotalSeconds;
+                    if (ttl < 30) ttl = 30;
+
+                    foreach (var item in cacheEntry.ResponseData.AnswerRecords.ToList())
+                    {
+                        if (item.RecordType == RecordType.A)
+                            result.AnswerRecords.Add(new ARecord(item.Name, ttl, ((ARecord) item).Address));
+                        else if (item.RecordType == RecordType.Aaaa)
+                            result.AnswerRecords.Add(new AaaaRecord(item.Name, ttl, ((AaaaRecord) item).Address));
+                        else
+                            result.AnswerRecords.Add(item);
+                    }
+
+                    if (DateTime.UtcNow > cacheEntry.ExpiryTime) Task.Run(() => _ = RefreshCacheAsync(query, up));
+                }
                 else
                 {
                     SemaphoreSlim? semaphore = null;
@@ -440,6 +455,25 @@ namespace ArashiDNS.Lity
             if (ttl < MinTTL) ttl = MinTTL;
             if (ttl > MaxTTL) ttl = MaxTTL;
             return ttl;
+        }
+
+        private static async Task RefreshCacheAsync(DnsMessage originalQuery,IPEndPoint up)
+        {
+            try
+            {
+                var question = originalQuery.Questions[0];
+                var newResponse = await DoQuery(originalQuery,up);
+                if (newResponse is {ReturnCode: ReturnCode.NoError})
+                {
+                    CacheEntries[(question, GetIpFromDns(originalQuery))] = new CacheEntry(newResponse,
+                        DateTime.UtcNow.AddSeconds(GetTtl(newResponse)));
+                    //Console.WriteLine($"UP: {question}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"E: {ex.Message}");
+            }
         }
 
         private static IPAddress GetIpFromDns(DnsMessage dnsMsg)
