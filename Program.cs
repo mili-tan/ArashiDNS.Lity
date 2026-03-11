@@ -39,7 +39,7 @@ namespace ArashiDNS.Lity
         public class CacheEntry
         {
             public DnsMessage ResponseData { get; set; }
-            public DateTime ExpiryTime { get; set; } // 过期时间（基于TTL）
+            public DateTime ExpiryTime { get; set; } 
         }
 
         public static Timer CleanupTimer;
@@ -275,7 +275,7 @@ namespace ArashiDNS.Lity
                 }
                 else ecs = GetIpFromDns(query);
 
-                if (UseCache && MemoryCache.Default.Contains("C:" + quest + ecs))
+                if (UseCache && !UseDictCache && MemoryCache.Default.Contains("C:" + quest + ecs))
                 {
                     result.AnswerRecords.AddRange(((DnsMessage) MemoryCache.Default.Get("C:" + quest + ecs))
                         .AnswerRecords.ToArray());
@@ -347,7 +347,7 @@ namespace ArashiDNS.Lity
 
                     try
                     {
-                        if (UseCache && result.ReturnCode == ReturnCode.NoError)
+                        if (UseCache && !UseDictCache && result.ReturnCode == ReturnCode.NoError)
                             MemoryCache.Default.Add(new CacheItem("C:" + quest + ecs, result),
                                 new CacheItemPolicy()
                                     {AbsoluteExpiration = DateTime.UtcNow.AddSeconds(GetTtl(result))});
