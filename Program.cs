@@ -288,6 +288,7 @@ namespace ArashiDNS.Lity
                         .AnswerRecords.ToArray());
                 else if (UseCache && UseOpCache && CacheEntries.TryGetValue((quest, ecs), out var cacheEntry))
                 {
+                    result.ReturnCode = cacheEntry.ResponseData.ReturnCode;
                     var ttl = (int) (cacheEntry.ExpiryTime - DateTime.UtcNow).TotalSeconds;
                     if (ttl < 30) ttl = 30;
 
@@ -347,7 +348,7 @@ namespace ArashiDNS.Lity
                     try
                     {
 
-                        if (UseCache && result.ReturnCode == ReturnCode.NoError)
+                        if (UseCache && result.ReturnCode is ReturnCode.NoError or ReturnCode.NxDomain)
                         {
                             if (!UseOpCache)
                                 MemoryCache.Default.Add(new CacheItem("C:" + quest + ecs, result),
@@ -463,7 +464,7 @@ namespace ArashiDNS.Lity
             {
                 var question = originalQuery.Questions[0];
                 var newResponse = await DoQuery(originalQuery,up);
-                if (newResponse is {ReturnCode: ReturnCode.NoError})
+                if (newResponse is {ReturnCode: ReturnCode.NoError or ReturnCode.NxDomain})
                 {
                     CacheEntries[(question, GetIpFromDns(originalQuery))] = new CacheEntry(newResponse,
                         DateTime.UtcNow.AddSeconds(GetTtl(newResponse)));
