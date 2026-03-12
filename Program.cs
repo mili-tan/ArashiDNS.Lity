@@ -11,6 +11,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Runtime.Caching;
+using static ArashiDNS.Lity.Program;
 
 namespace ArashiDNS.Lity
 {
@@ -288,20 +289,7 @@ namespace ArashiDNS.Lity
                         .AnswerRecords.ToArray());
                 else if (UseCache && UseOpCache && CacheEntries.TryGetValue((quest, ecs), out var cacheEntry))
                 {
-                    result.ReturnCode = cacheEntry.ResponseData.ReturnCode;
-                    var ttl = (int) (cacheEntry.ExpiryTime - DateTime.UtcNow).TotalSeconds;
-                    if (ttl < 30) ttl = 30;
-
-                    foreach (var item in cacheEntry.ResponseData.AnswerRecords.ToList())
-                    {
-                        if (item.RecordType == RecordType.A)
-                            result.AnswerRecords.Add(new ARecord(item.Name, ttl, ((ARecord) item).Address));
-                        else if (item.RecordType == RecordType.Aaaa)
-                            result.AnswerRecords.Add(new AaaaRecord(item.Name, ttl, ((AaaaRecord) item).Address));
-                        else
-                            result.AnswerRecords.Add(item);
-                    }
-
+                    result = ApplyCache(result, cacheEntry);
                     if (DateTime.UtcNow > cacheEntry.ExpiryTime) Task.Run(() => _ = RefreshCacheAsync(query, up));
                 }
                 else
@@ -456,6 +444,24 @@ namespace ArashiDNS.Lity
             if (ttl < MinTTL) ttl = MinTTL;
             if (ttl > MaxTTL) ttl = MaxTTL;
             return ttl;
+        }
+
+        private static DnsMessage ApplyCache(DnsMessage result, CacheEntry cacheEntry)
+        {
+            result.ReturnCode = cacheEntry.ResponseData.ReturnCode;
+            var ttl = (int)(cacheEntry.ExpiryTime - DateTime.UtcNow).TotalSeconds;
+            if (ttl < 30) ttl = 30;
+
+            foreach (var item in cacheEntry.ResponseData.AnswerRecords.ToList())
+            {
+                if (item.RecordType == RecordType.A)
+                    result.AnswerRecords.Add(new ARecord(item.Name, ttl, ((ARecord)item).Address));
+                else if (item.RecordType == RecordType.Aaaa)
+                    result.AnswerRecords.Add(new AaaaRecord(item.Name, ttl, ((AaaaRecord)item).Address));
+                else
+                    result.AnswerRecords.Add(item);
+            }
+            return result;
         }
 
         private static async Task RefreshCacheAsync(DnsMessage originalQuery,IPEndPoint up)
