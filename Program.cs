@@ -285,8 +285,7 @@ namespace ArashiDNS.Lity
                 }
 
                 if (UseCache && !UseOpCache && MemoryCache.Default.Contains("C:" + quest + ecs))
-                    result.AnswerRecords.AddRange(((DnsMessage) MemoryCache.Default.Get("C:" + quest + ecs))
-                        .AnswerRecords.ToArray());
+                    result = ApplyCache(result, (CacheEntry) MemoryCache.Default.Get("C:" + quest + ecs));
                 else if (UseCache && UseOpCache && CacheEntries.TryGetValue((quest, ecs), out var cacheEntry))
                 {
                     result = ApplyCache(result, cacheEntry);
@@ -314,6 +313,7 @@ namespace ArashiDNS.Lity
                             }
                         }
                     }
+
                     try
                     {
                         if (RepeatedWaitHard && RepeatedWait)
@@ -338,13 +338,13 @@ namespace ArashiDNS.Lity
 
                         if (UseCache && result.ReturnCode is ReturnCode.NoError or ReturnCode.NxDomain)
                         {
+                            var expTime = DateTime.UtcNow.AddSeconds(GetTtl(result));
                             if (!UseOpCache)
-                                MemoryCache.Default.Add(new CacheItem("C:" + quest + ecs, result),
-                                    new CacheItemPolicy()
-                                        {AbsoluteExpiration = DateTime.UtcNow.AddSeconds(GetTtl(result))});
+                                MemoryCache.Default.Add(
+                                    new CacheItem("C:" + quest + ecs, new CacheEntry(result, expTime)),
+                                    new CacheItemPolicy {AbsoluteExpiration = expTime});
                             else
-                                CacheEntries[(quest, ecs)] =
-                                    new CacheEntry(result, DateTime.UtcNow.AddSeconds(GetTtl(result)));
+                                CacheEntries[(quest, ecs)] = new CacheEntry(result, expTime);
                         }
 
                         if (RepeatedWait)
@@ -353,7 +353,8 @@ namespace ArashiDNS.Lity
                             else if (semaphore != null)
                             {
                                 semaphore.Release(1);
-                                if (semaphore.CurrentCount == 0) RequestSemaphores.TryRemove(quest + ecs.ToString(), out _);
+                                if (semaphore.CurrentCount == 0)
+                                    RequestSemaphores.TryRemove(quest + ecs.ToString(), out _);
                             }
                     }
                     catch (Exception)
@@ -446,7 +447,7 @@ namespace ArashiDNS.Lity
             return ttl;
         }
 
-        private static DnsMessage ApplyCache(DnsMessage result, CacheEntry cacheEntry)
+        private static DnsMessage ApplyCache(DnsMessage result, CacheEntry? cacheEntry)
         {
             result.ReturnCode = cacheEntry.ResponseData.ReturnCode;
             var ttl = (int)(cacheEntry.ExpiryTime - DateTime.UtcNow).TotalSeconds;
