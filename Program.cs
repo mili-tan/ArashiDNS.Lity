@@ -33,8 +33,8 @@ namespace ArashiDNS.Lity
         public static Dictionary<string, IPEndPoint> PathUpDictionary = new Dictionary<string, IPEndPoint>();
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> RequestSemaphores = new ConcurrentDictionary<string, SemaphoreSlim>();
 
-        public static readonly int MinTTL = 120;
-        public static readonly int MaxTTL = 86400;
+        public static int MinTTL = 60;
+        public static int MaxTTL = 86400;
 
         public static ConcurrentDictionary<(DnsQuestion, IPAddress), CacheEntry> CacheEntries = new();
         public class CacheEntry(DnsMessage responseData, DateTimeOffset expiryTime)
@@ -94,6 +94,29 @@ namespace ArashiDNS.Lity
                     : "Maximum time for repeated query wait (ms). [100]",
                 CommandOptionType.SingleValue);
 
+            var cacheOption = cmd.Option<bool>("-c",
+                isZh ? "启用缓存。" : "Enable caching.", CommandOptionType.NoValue);
+            var opCacheOption = cmd.Option<bool>("-c",
+                isZh
+                    ? "启用乐观缓存（可能返回过期数据，但能减少上游查询）。"
+                    : "Enable optimistic cache (may return stale data but reduces upstream queries).",
+                CommandOptionType.NoValue);
+            var staleThresholdOption = cmd.Option<int>("-st <Hours>",
+                isZh
+                    ? "乐观缓存的过期数据阈值（小时）。[12]"
+                    : "Stale data threshold for optimistic cache (Hours). [12]",
+                CommandOptionType.SingleValue);
+            var maxTtlOption = cmd.Option<int>("-max-t <Seconds>",
+                isZh
+                    ? "缓存的最大TTL（秒）。[86400]"
+                    : "Maximum TTL for cache (Seconds). [86400]",
+                CommandOptionType.SingleValue);
+            var minTtlOption = cmd.Option<int>("-min-t <Seconds>",
+                isZh
+                    ? "缓存的最小TTL（秒）。[60]"
+                    : "Minimum TTL for cache (Seconds). [60]",
+                CommandOptionType.SingleValue);
+
             cmd.OnExecute(() =>
             {
                 if (wOption.HasValue()) TimeOut = wOption.ParsedValue;
@@ -102,6 +125,12 @@ namespace ArashiDNS.Lity
                 if (pOption.HasValue()) Path = pOption.ParsedValue;
                 if (kOption.HasValue()) Key = kOption.ParsedValue;
                 if (vOption.HasValue()) Validation = vOption.ParsedValue;
+                if (cacheOption.HasValue()) UseCache = cacheOption.ParsedValue;
+                if (opCacheOption.HasValue()) UseOpCache = opCacheOption.ParsedValue;
+                if (staleThresholdOption.HasValue())
+                    StaleThreshold = TimeSpan.FromHours(staleThresholdOption.ParsedValue);
+                if (maxTtlOption.HasValue()) MaxTTL = maxTtlOption.ParsedValue;
+                if (minTtlOption.HasValue()) MinTTL = minTtlOption.ParsedValue;
                 if (Up.Port == 0) Up.Port = 53;
                 if (Listen.Port == 0) Listen.Port = 8053;
 
