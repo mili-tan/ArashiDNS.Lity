@@ -26,6 +26,7 @@ namespace ArashiDNS.Lity
         public static bool RepeatedWaitHard = false;
         public static bool UseEcsEcho = true;
         public static bool UseCache = false;
+        public static bool UseDictCache = false;
         public static bool UseOpCache = false;
         public static bool CheckPort = true;
         public static int RepeatedWaitTime = 100;
@@ -135,10 +136,10 @@ namespace ArashiDNS.Lity
                                 Console.WriteLine(e);
                             }
 
-                if (UseOpCache)
+                if (UseDictCache)
                     CleanupTimer = new Timer(c =>
                     {
-                        var threshold = DateTime.UtcNow.Add(-StaleThreshold);
+                        var threshold = UseOpCache ? DateTime.UtcNow : DateTime.UtcNow.Add(-StaleThreshold);
                         var expiredKeys = CacheEntries
                             .Where(kvp => kvp.Value.ExpiryTime < threshold)
                             .Select(kvp => kvp.Key)
@@ -284,12 +285,15 @@ namespace ArashiDNS.Lity
                     Console.WriteLine(e);
                 }
 
-                if (UseCache && !UseOpCache && MemoryCache.Default.Contains("C:" + quest + ecs))
+                if (UseCache && !UseDictCache && MemoryCache.Default.Contains("C:" + quest + ecs))
+                {
                     result = ApplyCache(result, (CacheEntry) MemoryCache.Default.Get("C:" + quest + ecs));
-                else if (UseCache && UseOpCache && CacheEntries.TryGetValue((quest, ecs), out var cacheEntry))
+                }
+                else if (UseCache && UseDictCache && CacheEntries.TryGetValue((quest, ecs), out var cacheEntry))
                 {
                     result = ApplyCache(result, cacheEntry);
-                    if (DateTime.UtcNow > cacheEntry.ExpiryTime) Task.Run(() => _ = RefreshCacheAsync(query, up));
+                    if (UseOpCache && DateTime.UtcNow > cacheEntry.ExpiryTime)
+                        Task.Run(() => _ = RefreshCacheAsync(query, up));
                 }
                 else
                 {
@@ -339,7 +343,7 @@ namespace ArashiDNS.Lity
                         if (UseCache && result.ReturnCode is ReturnCode.NoError or ReturnCode.NxDomain)
                         {
                             var expTime = DateTime.UtcNow.AddSeconds(GetTtl(result));
-                            if (!UseOpCache)
+                            if (!UseDictCache)
                                 MemoryCache.Default.Add(
                                     new CacheItem("C:" + quest + ecs, new CacheEntry(result, expTime)),
                                     new CacheItemPolicy {AbsoluteExpiration = expTime});
