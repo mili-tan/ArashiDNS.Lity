@@ -11,7 +11,6 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Runtime.Caching;
-using static ArashiDNS.Lity.Program;
 
 namespace ArashiDNS.Lity
 {
@@ -38,10 +37,10 @@ namespace ArashiDNS.Lity
         public static readonly int MaxTTL = 86400;
 
         public static ConcurrentDictionary<(DnsQuestion, IPAddress), CacheEntry> CacheEntries = new();
-        public class CacheEntry(DnsMessage responseData, DateTime expiryTime)
+        public class CacheEntry(DnsMessage responseData, DateTimeOffset expiryTime)
         {
             public DnsMessage ResponseData { get; set; } = responseData;
-            public DateTime ExpiryTime { get; set; } = expiryTime;
+            public DateTimeOffset ExpiryTime { get; set; } = expiryTime;
         }
 
         public static Timer? CleanupTimer;
@@ -349,7 +348,7 @@ namespace ArashiDNS.Lity
                             if (!UseDictCache)
                                 MemoryCache.Default.Add(
                                     new CacheItem("C:" + quest + ecs,
-                                        new CacheEntry(result, DateTime.UtcNow.AddSeconds(ttl))),
+                                        new CacheEntry(result, DateTimeOffset.UtcNow.AddSeconds(ttl))),
                                     new CacheItemPolicy
                                     {
                                         AbsoluteExpiration = UseOpCache
@@ -357,7 +356,7 @@ namespace ArashiDNS.Lity
                                             : DateTimeOffset.UtcNow.AddSeconds(ttl)
                                     });
                             else
-                                CacheEntries[(quest, ecs)] = new CacheEntry(result, DateTime.UtcNow.AddSeconds(ttl));
+                                CacheEntries[(quest, ecs)] = new CacheEntry(result, DateTimeOffset.UtcNow.AddSeconds(ttl));
                         }
 
                         if (RepeatedWait)
@@ -490,13 +489,13 @@ namespace ArashiDNS.Lity
                     if (UseDictCache)
                     {
                         CacheEntries[(question, GetIpFromDns(originalQuery))] = new CacheEntry(newResponse,
-                            DateTime.UtcNow.AddSeconds(ttl));
+                            DateTimeOffset.UtcNow.AddSeconds(ttl));
                     }
                     else
                     {
                         MemoryCache.Default.Set(
                             new CacheItem("C:" + question + GetIpFromDns(originalQuery),
-                                new CacheEntry(newResponse, DateTime.UtcNow.AddSeconds(ttl))),
+                                new CacheEntry(newResponse, DateTimeOffset.UtcNow.AddSeconds(ttl))),
                             new CacheItemPolicy
                             {
                                 AbsoluteExpiration = UseOpCache
