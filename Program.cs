@@ -287,7 +287,10 @@ namespace ArashiDNS.Lity
 
                 if (UseCache && !UseDictCache && MemoryCache.Default.Contains("C:" + quest + ecs))
                 {
-                    result = ApplyCache(result, (CacheEntry) MemoryCache.Default.Get("C:" + quest + ecs));
+                    var cacheEntry = (CacheEntry) MemoryCache.Default.Get("C:" + quest + ecs);
+                    result = ApplyCache(result, cacheEntry);
+                    if (UseOpCache && DateTime.UtcNow > cacheEntry.ExpiryTime)
+                        Task.Run(() => _ = RefreshCacheAsync(query, up));
                 }
                 else if (UseCache && UseDictCache && CacheEntries.TryGetValue((quest, ecs), out var cacheEntry))
                 {
@@ -475,10 +478,21 @@ namespace ArashiDNS.Lity
             {
                 var question = originalQuery.Questions[0];
                 var newResponse = await DoQuery(originalQuery,up);
+                var ttl = GetTtl(newResponse);
                 if (newResponse is {ReturnCode: ReturnCode.NoError or ReturnCode.NxDomain})
                 {
-                    CacheEntries[(question, GetIpFromDns(originalQuery))] = new CacheEntry(newResponse,
-                        DateTime.UtcNow.AddSeconds(GetTtl(newResponse)));
+                    if (UseDictCache)
+                    {
+                        CacheEntries[(question, GetIpFromDns(originalQuery))] = new CacheEntry(newResponse,
+                            DateTime.UtcNow.AddSeconds(ttl));
+                    }
+                    else
+                    {
+                        MemoryCache.Default.Set(
+                            new CacheItem("C:" + question + GetIpFromDns(originalQuery),
+                                new CacheEntry(newResponse, DateTime.UtcNow.AddSeconds(ttl))),
+                            new CacheItemPolicy {AbsoluteExpiration = DateTimeOffset.UtcNow.AddSeconds(ttl) });
+                    }
                     //Console.WriteLine($"UP: {question}");
                 }
             }
