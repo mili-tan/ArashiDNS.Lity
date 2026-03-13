@@ -346,7 +346,7 @@ namespace ArashiDNS.Lity
                         {
                             var ttl = GetTtl(result);
                             if (!UseDictCache)
-                                MemoryCache.Default.Add(
+                                MemoryCache.Default.Set(
                                     new CacheItem("C:" + quest + ecs,
                                         new CacheEntry(result, DateTimeOffset.UtcNow.AddSeconds(ttl))),
                                     new CacheItemPolicy
