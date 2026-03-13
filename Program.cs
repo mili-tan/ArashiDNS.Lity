@@ -345,13 +345,19 @@ namespace ArashiDNS.Lity
 
                         if (UseCache && result.ReturnCode is ReturnCode.NoError or ReturnCode.NxDomain)
                         {
-                            var expTime = DateTime.UtcNow.AddSeconds(GetTtl(result));
+                            var ttl = GetTtl(result);
                             if (!UseDictCache)
                                 MemoryCache.Default.Add(
-                                    new CacheItem("C:" + quest + ecs, new CacheEntry(result, expTime)),
-                                    new CacheItemPolicy {AbsoluteExpiration = expTime});
+                                    new CacheItem("C:" + quest + ecs,
+                                        new CacheEntry(result, DateTime.UtcNow.AddSeconds(ttl))),
+                                    new CacheItemPolicy
+                                    {
+                                        AbsoluteExpiration = UseOpCache
+                                            ? DateTimeOffset.UtcNow.AddSeconds(ttl).Add(StaleThreshold)
+                                            : DateTimeOffset.UtcNow.AddSeconds(ttl)
+                                    });
                             else
-                                CacheEntries[(quest, ecs)] = new CacheEntry(result, expTime);
+                                CacheEntries[(quest, ecs)] = new CacheEntry(result, DateTime.UtcNow.AddSeconds(ttl));
                         }
 
                         if (RepeatedWait)
@@ -491,7 +497,12 @@ namespace ArashiDNS.Lity
                         MemoryCache.Default.Set(
                             new CacheItem("C:" + question + GetIpFromDns(originalQuery),
                                 new CacheEntry(newResponse, DateTime.UtcNow.AddSeconds(ttl))),
-                            new CacheItemPolicy {AbsoluteExpiration = DateTimeOffset.UtcNow.AddSeconds(ttl) });
+                            new CacheItemPolicy
+                            {
+                                AbsoluteExpiration = UseOpCache
+                                    ? DateTimeOffset.UtcNow.AddSeconds(ttl).Add(StaleThreshold)
+                                    : DateTimeOffset.UtcNow.AddSeconds(ttl)
+                            });
                     }
                     //Console.WriteLine($"UP: {question}");
                 }
