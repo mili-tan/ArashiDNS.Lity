@@ -42,7 +42,7 @@ namespace ArashiDNS.Lity
         public static int MinTTL = 60;
         public static int MaxTTL = 86400;
 
-        public static ConcurrentDictionary<(DnsQuestion, IPAddress), CacheEntry> CacheEntries = new();
+        public static ConcurrentDictionary<(DnsQuestion, string), CacheEntry> CacheEntries = new();
         public class CacheEntry(DnsMessage responseData, DateTimeOffset expiryTime)
         {
             public DnsMessage ResponseData { get; set; } = responseData;
@@ -319,14 +319,15 @@ namespace ArashiDNS.Lity
                     Console.WriteLine(e);
                 }
 
-                if (UseCache && !UseDictCache && MemoryCache.Default.Contains("C:" + quest + ecs))
+                var geoStr = GetGeoStr(ecs);
+                if (UseCache && !UseDictCache && MemoryCache.Default.Contains("C:" + quest + geoStr))
                 {
-                    var cacheEntry = (CacheEntry) MemoryCache.Default.Get("C:" + quest + ecs);
+                    var cacheEntry = (CacheEntry) MemoryCache.Default.Get("C:" + quest + geoStr);
                     result = ApplyCache(result, cacheEntry);
                     if (UseOpCache && DateTime.UtcNow > cacheEntry.ExpiryTime)
                         Task.Run(() => _ = RefreshCacheAsync(query, up));
                 }
-                else if (UseCache && UseDictCache && CacheEntries.TryGetValue((quest, ecs), out var cacheEntry))
+                else if (UseCache && UseDictCache && CacheEntries.TryGetValue((quest, geoStr), out var cacheEntry))
                 {
                     result = ApplyCache(result, cacheEntry);
                     if (UseOpCache && DateTime.UtcNow > cacheEntry.ExpiryTime)
@@ -382,7 +383,7 @@ namespace ArashiDNS.Lity
                             var ttl = GetTtl(result);
                             if (!UseDictCache)
                                 MemoryCache.Default.Set(
-                                    new CacheItem("C:" + quest + ecs,
+                                    new CacheItem("C:" + quest + geoStr,
                                         new CacheEntry(result, DateTimeOffset.UtcNow.AddSeconds(ttl))),
                                     new CacheItemPolicy
                                     {
@@ -391,7 +392,7 @@ namespace ArashiDNS.Lity
                                             : DateTimeOffset.UtcNow.AddSeconds(ttl)
                                     });
                             else
-                                CacheEntries[(quest, ecs)] = new CacheEntry(result, DateTimeOffset.UtcNow.AddSeconds(ttl));
+                                CacheEntries[(quest, geoStr)] = new CacheEntry(result, DateTimeOffset.UtcNow.AddSeconds(ttl));
                         }
 
                         if (RepeatedWait)
@@ -530,20 +531,22 @@ namespace ArashiDNS.Lity
         {
             try
             {
-                var question = originalQuery.Questions[0];
                 var newResponse = await DoQuery(originalQuery,up);
-                var ttl = GetTtl(newResponse);
                 if (newResponse is {ReturnCode: ReturnCode.NoError or ReturnCode.NxDomain})
                 {
+                    var question = originalQuery.Questions[0];
+                    var ttl = GetTtl(newResponse);
+                    var geoStr = GetGeoStr(GetIpFromDns(originalQuery));
+
                     if (UseDictCache)
                     {
-                        CacheEntries[(question, GetIpFromDns(originalQuery))] = new CacheEntry(newResponse,
+                        CacheEntries[(question, geoStr)] = new CacheEntry(newResponse,
                             DateTimeOffset.UtcNow.AddSeconds(ttl));
                     }
                     else
                     {
                         MemoryCache.Default.Set(
-                            new CacheItem("C:" + question + GetIpFromDns(originalQuery),
+                            new CacheItem("C:" + question + geoStr,
                                 new CacheEntry(newResponse, DateTimeOffset.UtcNow.AddSeconds(ttl))),
                             new CacheItemPolicy
                             {
