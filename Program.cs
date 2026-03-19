@@ -31,13 +31,14 @@ namespace ArashiDNS.Lity
         public static bool UseDictCache = false;
         public static bool UseOpCache = false;
         public static bool CheckPort = true;
+        public static bool UseGeoCache = true;
         public static int RepeatedWaitTime = 100;
         public static IPEndPoint Up = new IPEndPoint(IPAddress.Parse("8.8.8.8"), 53);
         public static Dictionary<string, IPEndPoint> PathUpDictionary = new Dictionary<string, IPEndPoint>();
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> RequestSemaphores = new ConcurrentDictionary<string, SemaphoreSlim>();
 
-        public static DatabaseReader AsnReader;
-        public static DatabaseReader CityReader;
+        public static DatabaseReader AsnReader = null;
+        public static DatabaseReader CityReader = null;
 
         public static int MinTTL = 60;
         public static int MaxTTL = 86400;
@@ -319,7 +320,7 @@ namespace ArashiDNS.Lity
                     Console.WriteLine(e);
                 }
 
-                var geoStr = GetGeoStr(ecs);
+                var geoStr = UseGeoCache ? GetGeoStr(ecs) : ecs.ToString();
                 if (UseCache && !UseDictCache && MemoryCache.Default.Contains("C:" + quest + geoStr))
                 {
                     var cacheEntry = (CacheEntry) MemoryCache.Default.Get("C:" + quest + geoStr);
@@ -536,7 +537,9 @@ namespace ArashiDNS.Lity
                 {
                     var question = originalQuery.Questions[0];
                     var ttl = GetTtl(newResponse);
-                    var geoStr = GetGeoStr(GetIpFromDns(originalQuery));
+                    var geoStr = UseGeoCache
+                        ? GetGeoStr(GetIpFromDns(originalQuery))
+                        : GetIpFromDns(originalQuery).ToString();
 
                     if (UseDictCache)
                     {
