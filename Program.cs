@@ -1,16 +1,19 @@
 ﻿using Arashi;
 using ARSoft.Tools.Net;
 using ARSoft.Tools.Net.Dns;
+using MaxMind.GeoIP2;
 using McMaster.Extensions.CommandLineUtils;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
+using Org.BouncyCastle.Utilities.Net;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Runtime.Caching;
+using IPAddress = System.Net.IPAddress;
 
 namespace ArashiDNS.Lity
 {
@@ -32,6 +35,9 @@ namespace ArashiDNS.Lity
         public static IPEndPoint Up = new IPEndPoint(IPAddress.Parse("8.8.8.8"), 53);
         public static Dictionary<string, IPEndPoint> PathUpDictionary = new Dictionary<string, IPEndPoint>();
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> RequestSemaphores = new ConcurrentDictionary<string, SemaphoreSlim>();
+
+        public static DatabaseReader AsnReader;
+        public static DatabaseReader CityReader;
 
         public static int MinTTL = 60;
         public static int MaxTTL = 86400;
@@ -486,6 +492,20 @@ namespace ArashiDNS.Lity
             if (ttl < MinTTL) ttl = MinTTL;
             if (ttl > MaxTTL) ttl = MaxTTL;
             return ttl;
+        }
+
+        private static string GetGeoStr(IPAddress ipAddress)
+        {
+            AsnReader ??= new DatabaseReader("./GeoLite2-ASN.mmdb");
+            CityReader ??= new DatabaseReader("./GeoLite2-City.mmdb");
+
+            var asn = AsnReader.Asn(ipAddress);
+            var city = CityReader.City(ipAddress);
+
+            var geoStr = (asn.AutonomousSystemNumber.ToString() ?? "") + (asn.AutonomousSystemOrganization ?? "") +
+                         (city.Country.IsoCode ?? "");
+            if (city.Country.IsoCode?.ToUpper() == "CN") geoStr += city.MostSpecificSubdivision.IsoCode ?? "";
+            return geoStr;
         }
 
         private static DnsMessage ApplyCache(DnsMessage result, CacheEntry? cacheEntry)
