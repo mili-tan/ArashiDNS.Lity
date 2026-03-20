@@ -36,8 +36,8 @@ namespace ArashiDNS.Lity
         public static Dictionary<string, IPEndPoint> PathUpDictionary = new Dictionary<string, IPEndPoint>();
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> RequestSemaphores = new ConcurrentDictionary<string, SemaphoreSlim>();
 
-        public static DatabaseReader AsnReader = null;
-        public static DatabaseReader CityReader = null;
+        public static DatabaseReader? AsnReader;
+        public static DatabaseReader? CityReader;
 
         public static int MinTTL = 60;
         public static int MaxTTL = 86400;
@@ -169,6 +169,13 @@ namespace ArashiDNS.Lity
                             {
                                 Console.WriteLine(e);
                             }
+
+                if (UseGeoCache)
+                    Parallel.Invoke(
+                        () => GetFileUpdate("GeoLite2-ASN.mmdb",
+                            "https://github.com/mili-tan/maxmind-geoip/releases/latest/download/GeoLite2-Asn.mmdb"),
+                        () => GetFileUpdate("GeoLite2-City.mmdb",
+                            "https://github.com/mili-tan/maxmind-geoip/releases/latest/download/GeoLite2-City.mmdb"));
 
                 if (UseDictCache)
                     CleanupTimer = new Timer(c =>
@@ -583,6 +590,28 @@ namespace ArashiDNS.Lity
             {
                 return IPAddress.Any;
             }
+        }
+
+        public static void GetFileUpdate(string file, string url)
+        {
+            var setupBasePath = AppDomain.CurrentDomain.SetupInformation.ApplicationBase;
+            if (File.Exists(setupBasePath + file))
+                Console.Write(file + " Last updated: " + new FileInfo(setupBasePath + file).LastWriteTimeUtc);
+            else Console.Write(file + " Not Exist or being Updating");
+            if (File.Exists(setupBasePath + file) &&
+                (DateTime.UtcNow - new FileInfo(setupBasePath + file).LastWriteTimeUtc)
+                .TotalDays > 7)
+            {
+                Console.WriteLine(
+                    $" : Expired {(DateTime.UtcNow - new FileInfo(setupBasePath + file).LastWriteTimeUtc).TotalDays:0} days");
+                File.Delete(setupBasePath + file);
+            }
+            else Console.WriteLine();
+
+            if (File.Exists(setupBasePath + file)) return;
+            Console.WriteLine($"Downloading {file}...");
+            File.WriteAllBytes(setupBasePath + file, new HttpClient().GetByteArrayAsync(url).Result);
+            Console.WriteLine(file + " Download Done");
         }
 
         public class ObjectPool<T>
