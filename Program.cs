@@ -23,13 +23,13 @@ namespace ArashiDNS.Lity
         public static string QueryParamKey = "dns";
         public static bool EnableResponseValidation = false;
         public static bool EnableRequestDeduplication = true;
-        public static bool UseHardDeduplication = false;
         public static bool EnableEcsEcho = true;
         public static bool EnableCache = false;
-        public static bool UseDictionaryCache = false;
+        public static bool EnableGeoCache = false;
         public static bool EnableOptimisticCache = false;
         public static bool MonitorUpstreamPort = true;
-        public static bool EnableGeoCache = false;
+        public static bool UseHardDeduplication = false;
+        public static bool UseDictionaryCache = false;
         public static int DeduplicationWaitMs = 100;
         public static IPEndPoint UpstreamEndpoint = new(IPAddress.Parse("8.8.8.8"), 53);
         public static Dictionary<string, IPEndPoint> CustomPathUpstreamMappings = new();
@@ -101,6 +101,10 @@ namespace ArashiDNS.Lity
                     ? "启用乐观缓存（可能返回过期数据，但能减少上游查询）。"
                     : "Enable optimistic cache (may return stale data but reduces upstream queries).",
                 CommandOptionType.NoValue);
+            var geoCacheOption = cmd.Option<bool>("-geoc",
+                isZh
+                    ? "启用基于地理位置的缓存（需要 GeoLite2 ASN&City 数据库）。"
+                    : "Enable geo-location based cache (requires GeoLite2 databases).", CommandOptionType.NoValue);
             var staleThresholdOption = cmd.Option<int>("-st <Hours>",
                 isZh ? "乐观缓存的过期数据阈值（小时）。[12]" : "Stale data threshold for optimistic cache (Hours). [12]",
                 CommandOptionType.SingleValue);
@@ -124,6 +128,7 @@ namespace ArashiDNS.Lity
                 if (minTtlOption.HasValue()) MinTtlSeconds = minTtlOption.ParsedValue;
                 if (staleThresholdOption.HasValue())
                     StaleDataThreshold = TimeSpan.FromHours(staleThresholdOption.ParsedValue);
+                if (geoCacheOption.HasValue()) EnableGeoCache = geoCacheOption.ParsedValue;
 
                 if (UpstreamEndpoint.Port == 0) UpstreamEndpoint.Port = 53;
                 if (ListenEndpoint.Port == 0) ListenEndpoint.Port = 8053;
@@ -156,11 +161,13 @@ namespace ArashiDNS.Lity
                         }
 
                 if (EnableGeoCache)
+                {
                     Parallel.Invoke(
                         () => DownloadGeoDatabase("GeoLite2-ASN.mmdb",
                             "https://github.com/mili-tan/maxmind-geoip/releases/latest/download/GeoLite2-Asn.mmdb"),
                         () => DownloadGeoDatabase("GeoLite2-City.mmdb",
                             "https://github.com/mili-tan/maxmind-geoip/releases/latest/download/GeoLite2-City.mmdb"));
+                }
 
                 if (UseDictionaryCache)
                     CleanupTimer = new Timer(_ => CleanupCache(), null, CleanupInterval, CleanupInterval);
