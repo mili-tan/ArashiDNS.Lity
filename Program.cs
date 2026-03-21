@@ -162,6 +162,8 @@ namespace ArashiDNS.Lity
 
                 if (EnableGeoCache)
                 {
+                    Console.WriteLine(
+                        "This product includes GeoLite2 data created by MaxMind, available from https://www.maxmind.com");
                     Parallel.Invoke(
                         () => DownloadGeoDatabase("GeoLite2-ASN.mmdb",
                             "https://github.com/mili-tan/maxmind-geoip/releases/latest/download/GeoLite2-Asn.mmdb"),
