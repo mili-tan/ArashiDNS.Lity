@@ -344,7 +344,8 @@ namespace ArashiDNS.Lity
         private static DnsMessage ApplyCacheToResponse(DnsMessage result, CacheEntry cacheEntry)
         {
             result.ReturnCode = cacheEntry.ResponseData.ReturnCode;
-            var ttl = Math.Max(OptimisticTtlSeconds, (int) (cacheEntry.ExpiryTime - DateTime.UtcNow).TotalSeconds);
+            var originTtl = (int) (cacheEntry.ExpiryTime - DateTime.UtcNow).TotalSeconds;
+            var ttl = originTtl <= 0 ? OptimisticTtlSeconds : Math.Max(MinTtlSeconds, originTtl);
 
             foreach (var record in cacheEntry.ResponseData.AnswerRecords)
             {
