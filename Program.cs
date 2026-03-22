@@ -41,6 +41,7 @@ namespace ArashiDNS.Lity
 
         public static int MinTtlSeconds = 60;
         public static int MaxTtlSeconds = 86400;
+        public static int OptimisticTtlSeconds = 30;
 
         public static ConcurrentDictionary<(DnsQuestion, string), CacheEntry> CacheEntries = new();
 
@@ -343,7 +344,7 @@ namespace ArashiDNS.Lity
         private static DnsMessage ApplyCacheToResponse(DnsMessage result, CacheEntry cacheEntry)
         {
             result.ReturnCode = cacheEntry.ResponseData.ReturnCode;
-            var ttl = Math.Max(30, (int) (cacheEntry.ExpiryTime - DateTime.UtcNow).TotalSeconds);
+            var ttl = Math.Max(OptimisticTtlSeconds, (int) (cacheEntry.ExpiryTime - DateTime.UtcNow).TotalSeconds);
 
             foreach (var record in cacheEntry.ResponseData.AnswerRecords)
             {
