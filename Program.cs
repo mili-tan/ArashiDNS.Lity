@@ -270,7 +270,7 @@ namespace ArashiDNS.Lity
             if (TryGetFromCache(question, cacheKeySuffix, out var cachedEntry))
             {
                 result = ApplyCacheToResponse(result, cachedEntry);
-                if (EnableOptimisticCache && DateTime.UtcNow > cachedEntry.ExpiryTime)
+                if (EnableOptimisticCache && DateTime.UtcNow >= cachedEntry.ExpiryTime)
                     _ = Task.Run(() => RefreshCacheAsync(query, upstreamEndpoint));
             }
             else
