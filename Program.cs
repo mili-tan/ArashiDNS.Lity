@@ -34,30 +34,12 @@ namespace ArashiDNS.Lity
         public static IPEndPoint UpstreamEndpoint = new(IPAddress.Parse("8.8.8.8"), 53);
         public static Dictionary<string, IPEndPoint> CustomPathUpstreamMappings = new();
 
-        private static readonly ConcurrentDictionary<string, SemaphoreSlim> RequestSemaphores = new();
-
-        public static DatabaseReader? AsnReader;
-        public static DatabaseReader? CityReader;
-
         public static int MinTtlSeconds = 60;
         public static int MaxTtlSeconds = 86400;
         public static int OptimisticTtlSeconds = 30;
 
-        public static ConcurrentDictionary<(DnsQuestion, string), CacheEntry> CacheEntries = new();
-
-        public record CacheEntry(DnsMessage ResponseData, DateTimeOffset ExpiryTime);
-
-        public static Timer? CleanupTimer;
         public static TimeSpan CleanupInterval = TimeSpan.FromHours(1);
         public static TimeSpan StaleDataThreshold = TimeSpan.FromHours(12);
-
-        public static ObjectPool<RecursiveDnsResolver> RecursiveResolverPool = new(() =>
-            new RecursiveDnsResolver
-            {
-                Is0x20ValidationEnabled = EnableResponseValidation,
-                IsResponseValidationEnabled = EnableResponseValidation,
-                QueryTimeout = QueryTimeoutMs
-            });
 
         static void Main(string[] args)
         {
@@ -166,14 +148,14 @@ namespace ArashiDNS.Lity
                     Console.WriteLine(
                         "This product includes GeoLite2 data created by MaxMind, available from https://www.maxmind.com");
                     Parallel.Invoke(
-                        () => DownloadGeoDatabase("GeoLite2-ASN.mmdb",
+                        () => GeoHelper.DownloadGeoDatabase("GeoLite2-ASN.mmdb",
                             "https://github.com/mili-tan/maxmind-geoip/releases/latest/download/GeoLite2-Asn.mmdb"),
-                        () => DownloadGeoDatabase("GeoLite2-City.mmdb",
+                        () => GeoHelper.DownloadGeoDatabase("GeoLite2-City.mmdb",
                             "https://github.com/mili-tan/maxmind-geoip/releases/latest/download/GeoLite2-City.mmdb"));
                 }
 
                 if (UseDictionaryCache)
-                    CleanupTimer = new Timer(_ => CleanupCache(), null, CleanupInterval, CleanupInterval);
+                    CacheManager.CleanupTimer = new Timer(_ => CacheManager.CleanupCache(), null, CleanupInterval, CleanupInterval);
 
                 if (MonitorUpstreamPort)
                 {
@@ -195,7 +177,7 @@ namespace ArashiDNS.Lity
                     timer.Start();
                 }
 
-                RecursiveResolverPool = new(() => new RecursiveDnsResolver
+                DnsHandler.RecursiveResolverPool = new ObjectPool<RecursiveDnsResolver>(() => new RecursiveDnsResolver
                 {
                     Is0x20ValidationEnabled = EnableResponseValidation,
                     IsResponseValidationEnabled = EnableResponseValidation,
@@ -216,16 +198,16 @@ namespace ArashiDNS.Lity
                             {
                                 endpoint.Map("/", async ctx => await ctx.Response.WriteAsync("200 OK"));
                                 endpoint.Map($"/{QueryPath.Trim('/')}",
-                                    async ctx => await HandleDnsRequest(ctx, UpstreamEndpoint));
+                                    async ctx => await DnsHandler.HandleDnsRequest(ctx, UpstreamEndpoint));
                                 endpoint.Map($"/{QueryPath.Trim('/')}/json",
-                                    async ctx => await HandleDnsRequest(ctx, UpstreamEndpoint, isJson: true));
+                                    async ctx => await DnsHandler.HandleDnsRequest(ctx, UpstreamEndpoint, isJson: true));
 
                                 foreach (var (path, upstream) in CustomPathUpstreamMappings)
                                 {
                                     endpoint.Map($"/{path.Trim('/')}",
-                                        async ctx => await HandleDnsRequest(ctx, upstream));
+                                        async ctx => await DnsHandler.HandleDnsRequest(ctx, upstream));
                                     endpoint.Map($"/{path.Trim('/')}/json",
-                                        async ctx => await HandleDnsRequest(ctx, upstream, isJson: true));
+                                        async ctx => await DnsHandler.HandleDnsRequest(ctx, upstream, isJson: true));
                                 }
                             });
                         });
@@ -251,354 +233,374 @@ namespace ArashiDNS.Lity
             }
         }
 
-        private static async Task HandleDnsRequest(HttpContext context, IPEndPoint upstreamEndpoint,
-            bool isJson = false)
+        public static class DnsHandler
         {
-            var query = await ParseDnsQuery(context);
-            var result = query.CreateResponseInstance();
+            private static readonly ConcurrentDictionary<string, SemaphoreSlim> RequestSemaphores = new();
+            public static ObjectPool<RecursiveDnsResolver> RecursiveResolverPool;
 
-            if (!query.Questions.Any())
+            public static async Task HandleDnsRequest(HttpContext context, IPEndPoint upstreamEndpoint,
+                bool isJson = false)
             {
-                await SendResponse(context, result, query, isJson);
-                return;
-            }
+                var query = await ParseDnsQuery(context);
+                var result = query.CreateResponseInstance();
 
-            var question = query.Questions.First();
-            var clientSubnet = ExtractClientSubnet(query, context);
-            var cacheKeySuffix = EnableGeoCache ? GetGeoLocationKey(clientSubnet) : clientSubnet.ToString();
-
-            if (TryGetFromCache(question, cacheKeySuffix, out var cachedEntry))
-            {
-                result = ApplyCacheToResponse(result, cachedEntry);
-                if (EnableOptimisticCache && DateTime.UtcNow >= cachedEntry.ExpiryTime)
-                    _ = Task.Run(() => RefreshCacheAsync(query, upstreamEndpoint));
-            }
-            else
-            {
-                result = await QueryUpstreamWithDeduplication(query, upstreamEndpoint, question, clientSubnet);
-                if (EnableCache && result.ReturnCode is ReturnCode.NoError or ReturnCode.NxDomain)
-                    CacheResponse(question, cacheKeySuffix, result);
-            }
-
-            await SendResponse(context, result, query, isJson);
-        }
-
-        private static async Task<DnsMessage> ParseDnsQuery(HttpContext context)
-        {
-            if (context.Request.Query.TryGetValue("name", out var nameStr))
-            {
-                var typeStr = context.Request.Query["type"].ToString();
-                var recordType = Enum.TryParse<RecordType>(typeStr, ignoreCase: true, out var type)
-                    ? type
-                    : RecordType.A;
-
-                return new DnsMessage
+                if (!query.Questions.Any())
                 {
-                    Questions = {new DnsQuestion(DomainName.Parse(nameStr.ToString()), recordType, RecordClass.INet)}
-                };
-            }
-
-            return context.Request.Method.Equals("POST", StringComparison.OrdinalIgnoreCase)
-                ? await DNSParser.FromPostByteAsync(context)
-                : DNSParser.FromWebBase64(context, QueryParamKey);
-        }
-
-        private static IPAddress ExtractClientSubnet(DnsMessage query, HttpContext context)
-        {
-            try
-            {
-                if (context.Request.Query.TryGetValue("ecs", out var ecsStr))
-                {
-                    var clientSubnet = IPAddress.Parse(ecsStr.ToString().Split('/')[0]);
-                    query.IsEDnsEnabled = true;
-                    query.EDnsOptions?.Options.RemoveAll(x => x.Type == EDnsOptionType.ClientSubnet);
-                    query.EDnsOptions?.Options.Add(new ClientSubnetOption(24, clientSubnet));
-                    return clientSubnet;
+                    await SendResponse(context, result, query, isJson);
+                    return;
                 }
 
-                return query.EDnsOptions?.Options
-                    .OfType<ClientSubnetOption>()
-                    .FirstOrDefault()?.Address ?? IPAddress.Any;
-            }
-            catch
-            {
-                return IPAddress.Any;
-            }
-        }
+                var question = query.Questions.First();
+                var clientSubnet = ExtractClientSubnet(query, context);
+                var cacheKeySuffix = Program.EnableGeoCache ? GeoHelper.GetGeoLocationKey(clientSubnet) : clientSubnet.ToString();
 
-        private static bool TryGetFromCache(DnsQuestion question, string cacheKeySuffix, out CacheEntry entry)
-        {
-            entry = null;
-            if (!EnableCache) return false;
-
-            if (UseDictionaryCache)
-                return CacheEntries.TryGetValue((question, cacheKeySuffix), out entry);
-
-            var memoryCacheKey = $"C:{question}{cacheKeySuffix}";
-            if (!MemoryCache.Default.Contains(memoryCacheKey)) return false;
-
-            entry = (CacheEntry) MemoryCache.Default.Get(memoryCacheKey);
-            return true;
-        }
-
-        private static DnsMessage ApplyCacheToResponse(DnsMessage result, CacheEntry cacheEntry)
-        {
-            result.ReturnCode = cacheEntry.ResponseData.ReturnCode;
-            var originTtl = (int) (cacheEntry.ExpiryTime - DateTime.UtcNow).TotalSeconds;
-            var ttl = originTtl <= 0 ? OptimisticTtlSeconds : Math.Max(MinTtlSeconds, originTtl);
-
-            foreach (var record in cacheEntry.ResponseData.AnswerRecords)
-            {
-                result.AnswerRecords.Add(record switch
+                if (CacheManager.TryGetFromCache(question, cacheKeySuffix, out var cachedEntry))
                 {
-                    ARecord a => new ARecord(a.Name, ttl, a.Address),
-                    AaaaRecord aaaa => new AaaaRecord(aaaa.Name, ttl, aaaa.Address),
-                    _ => record
-                });
-            }
-
-            return result;
-        }
-
-        private static async Task<DnsMessage> QueryUpstreamWithDeduplication(DnsMessage query, IPEndPoint upstream,
-            DnsQuestion question, IPAddress clientSubnet)
-        {
-            SemaphoreSlim semaphore = null;
-
-            if (EnableRequestDeduplication)
-            {
-                if (UseHardDeduplication)
-                {
-                    if (MemoryCache.Default.Contains($"W:{question}{clientSubnet}"))
-                        await Task.Delay(100);
+                    result = CacheManager.ApplyCacheToResponse(result, cachedEntry);
+                    if (Program.EnableOptimisticCache && DateTime.UtcNow >= cachedEntry.ExpiryTime)
+                        _ = Task.Run(() => RefreshCacheAsync(query, upstreamEndpoint));
                 }
                 else
                 {
-                    semaphore = RequestSemaphores.GetOrAdd($"{question}{clientSubnet}", _ => new SemaphoreSlim(1, 1));
-                    try
-                    {
-                        await semaphore.WaitAsync(DeduplicationWaitMs);
-                    }
-                    catch (Exception e)
-                    {
-                        Console.WriteLine(e);
-                    }
+                    result = await QueryUpstreamWithDeduplication(query, upstreamEndpoint, question, clientSubnet);
+                    if (Program.EnableCache && result.ReturnCode is ReturnCode.NoError or ReturnCode.NxDomain)
+                        CacheManager.CacheResponse(question, cacheKeySuffix, result);
                 }
+
+                await SendResponse(context, result, query, isJson);
             }
 
-            try
+            private static async Task<DnsMessage> ParseDnsQuery(HttpContext context)
             {
-                if (UseHardDeduplication && EnableRequestDeduplication)
-                    MemoryCache.Default.Add($"W:{question}{clientSubnet}", true, DateTimeOffset.Now.AddSeconds(1));
-
-                return await QueryUpstreamAsync(query, upstream);
-            }
-            finally
-            {
-                if (EnableRequestDeduplication)
+                if (context.Request.Query.TryGetValue("name", out var nameStr))
                 {
-                    if (UseHardDeduplication)
-                        MemoryCache.Default.Remove($"{question}{clientSubnet}");
-                    else if (semaphore != null)
+                    var typeStr = context.Request.Query["type"].ToString();
+                    var recordType = Enum.TryParse<RecordType>(typeStr, ignoreCase: true, out var type)
+                        ? type
+                        : RecordType.A;
+
+                    return new DnsMessage
                     {
-                        semaphore.Release();
-                        if (semaphore.CurrentCount == 1)
-                            RequestSemaphores.TryRemove($"{question}{clientSubnet}", out _);
-                    }
+                        Questions = { new DnsQuestion(DomainName.Parse(nameStr.ToString()), recordType, RecordClass.INet) }
+                    };
                 }
+
+                return context.Request.Method.Equals("POST", StringComparison.OrdinalIgnoreCase)
+                    ? await DNSParser.FromPostByteAsync(context)
+                    : DNSParser.FromWebBase64(context, Program.QueryParamKey);
             }
-        }
 
-        private static async Task<DnsMessage> QueryUpstreamAsync(DnsMessage query, IPEndPoint upstream)
-        {
-            if (Equals(upstream.Address, IPAddress.Broadcast))
-                return await CometLite.DoQuery(query);
-
-            if (Equals(upstream.Address, IPAddress.Any))
+            private static IPAddress ExtractClientSubnet(DnsMessage query, HttpContext context)
             {
-                var resolver = RecursiveResolverPool.Get();
                 try
                 {
-                    var question = query.Questions.First();
-                    var records =
-                        resolver.Resolve<DnsRecordBase>(question.Name, question.RecordType, question.RecordClass);
+                    if (context.Request.Query.TryGetValue("ecs", out var ecsStr))
+                    {
+                        var clientSubnet = IPAddress.Parse(ecsStr.ToString().Split('/')[0]);
+                        query.IsEDnsEnabled = true;
+                        query.EDnsOptions?.Options.RemoveAll(x => x.Type == EDnsOptionType.ClientSubnet);
+                        query.EDnsOptions?.Options.Add(new ClientSubnetOption(24, clientSubnet));
+                        return clientSubnet;
+                    }
 
-                    var result = query.CreateResponseInstance();
-                    if (records.Any())
-                        result.AnswerRecords.AddRange(records);
+                    return query.EDnsOptions?.Options
+                        .OfType<ClientSubnetOption>()
+                        .FirstOrDefault()?.Address ?? IPAddress.Any;
+                }
+                catch
+                {
+                    return IPAddress.Any;
+                }
+            }
+
+            private static async Task<DnsMessage> QueryUpstreamWithDeduplication(DnsMessage query, IPEndPoint upstream,
+                DnsQuestion question, IPAddress clientSubnet)
+            {
+                SemaphoreSlim semaphore = null;
+
+                if (Program.EnableRequestDeduplication)
+                {
+                    if (Program.UseHardDeduplication)
+                    {
+                        if (MemoryCache.Default.Contains($"W:{question}{clientSubnet}"))
+                            await Task.Delay(100);
+                    }
                     else
-                        result.ReturnCode = ReturnCode.NxDomain;
+                    {
+                        semaphore = RequestSemaphores.GetOrAdd($"{question}{clientSubnet}", _ => new SemaphoreSlim(1, 1));
+                        try
+                        {
+                            await semaphore.WaitAsync(Program.DeduplicationWaitMs);
+                        }
+                        catch (Exception e)
+                        {
+                            Console.WriteLine(e);
+                        }
+                    }
+                }
 
-                    return result;
+                try
+                {
+                    if (Program.UseHardDeduplication && Program.EnableRequestDeduplication)
+                        MemoryCache.Default.Add($"W:{question}{clientSubnet}", true, DateTimeOffset.Now.AddSeconds(1));
+
+                    return await QueryUpstreamAsync(query, upstream);
                 }
                 finally
                 {
-                    RecursiveResolverPool.Return(resolver);
+                    if (Program.EnableRequestDeduplication)
+                    {
+                        if (Program.UseHardDeduplication)
+                            MemoryCache.Default.Remove($"{question}{clientSubnet}");
+                        else if (semaphore != null)
+                        {
+                            semaphore.Release();
+                            if (semaphore.CurrentCount == 1)
+                                RequestSemaphores.TryRemove($"{question}{clientSubnet}", out _);
+                        }
+                    }
                 }
             }
 
-            var client = new DnsClient(
-                [upstream.Address],
-                [new UdpClientTransport(upstream.Port), new TcpClientTransport(upstream.Port)],
-                queryTimeout: QueryTimeoutMs);
-
-            return await client.SendMessageAsync(query) ?? new DnsMessage()
-                {ReturnCode = ReturnCode.ServerFailure, Questions = query.Questions, IsQuery = false};
-        }
-
-        private static void CacheResponse(DnsQuestion question, string cacheKeySuffix, DnsMessage response)
-        {
-            var ttl = GetTtlFromResponse(response);
-            var cacheEntry = new CacheEntry(response, DateTimeOffset.UtcNow.AddSeconds(ttl));
-
-            if (UseDictionaryCache)
+            private static async Task<DnsMessage> QueryUpstreamAsync(DnsMessage query, IPEndPoint upstream)
             {
-                CacheEntries[(question, cacheKeySuffix)] = cacheEntry;
+                if (Equals(upstream.Address, IPAddress.Broadcast))
+                    return await CometLite.DoQuery(query);
+
+                if (Equals(upstream.Address, IPAddress.Any))
+                {
+                    var resolver = RecursiveResolverPool.Get();
+                    try
+                    {
+                        var question = query.Questions.First();
+                        var records =
+                            resolver.Resolve<DnsRecordBase>(question.Name, question.RecordType, question.RecordClass);
+
+                        var result = query.CreateResponseInstance();
+                        if (records.Any())
+                            result.AnswerRecords.AddRange(records);
+                        else
+                            result.ReturnCode = ReturnCode.NxDomain;
+
+                        return result;
+                    }
+                    finally
+                    {
+                        RecursiveResolverPool.Return(resolver);
+                    }
+                }
+
+                var client = new DnsClient(
+                    [upstream.Address],
+                    [new UdpClientTransport(upstream.Port), new TcpClientTransport(upstream.Port)],
+                    queryTimeout: Program.QueryTimeoutMs);
+
+                return await client.SendMessageAsync(query) ?? new DnsMessage()
+                { ReturnCode = ReturnCode.ServerFailure, Questions = query.Questions, IsQuery = false };
             }
-            else
-            {
-                var expiration = EnableOptimisticCache
-                    ? DateTimeOffset.UtcNow.AddSeconds(ttl).Add(StaleDataThreshold)
-                    : DateTimeOffset.UtcNow.AddSeconds(ttl);
 
-                MemoryCache.Default.Set($"C:{question}{cacheKeySuffix}", cacheEntry, expiration);
+            private static async Task RefreshCacheAsync(DnsMessage originalQuery, IPEndPoint upstream)
+            {
+                try
+                {
+                    var newResponse = await QueryUpstreamAsync(originalQuery, upstream);
+                    if (newResponse.ReturnCode is not (ReturnCode.NoError or ReturnCode.NxDomain)) return;
+
+                    var question = originalQuery.Questions[0];
+                    var clientSubnet = ExtractClientSubnetFromDnsMessage(originalQuery);
+                    var cacheKeySuffix = Program.EnableGeoCache ? GeoHelper.GetGeoLocationKey(clientSubnet) : clientSubnet.ToString();
+                    var ttl = CacheManager.GetTtlFromResponse(newResponse);
+                    var cacheEntry = new CacheManager.CacheEntry(newResponse, DateTimeOffset.UtcNow.AddSeconds(ttl));
+
+                    if (Program.UseDictionaryCache)
+                        CacheManager.CacheEntries[(question, cacheKeySuffix)] = cacheEntry;
+                    else
+                        MemoryCache.Default.Set($"C:{question}{cacheKeySuffix}", cacheEntry,
+                            DateTimeOffset.UtcNow.AddSeconds(ttl).Add(Program.StaleDataThreshold));
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error refreshing cache: {ex.Message}");
+                }
+            }
+
+            private static IPAddress ExtractClientSubnetFromDnsMessage(DnsMessage dnsMsg)
+            {
+                try
+                {
+                    return dnsMsg.EDnsOptions?.Options
+                        .OfType<ClientSubnetOption>()
+                        .FirstOrDefault()?.Address ?? IPAddress.Any;
+                }
+                catch
+                {
+                    return IPAddress.Any;
+                }
+            }
+
+            private static async Task SendResponse(HttpContext context, DnsMessage response, DnsMessage originalQuery,
+                bool isJson)
+            {
+                if (Program.EnableEcsEcho && originalQuery.EDnsOptions?.Options.Any(x => x.Type == EDnsOptionType.ClientSubnet) ==
+                    true)
+                {
+                    var clientSubnet =
+                        (ClientSubnetOption)originalQuery.EDnsOptions.Options.First(x =>
+                            x.Type == EDnsOptionType.ClientSubnet);
+                    response.EDnsOptions?.Options.Clear();
+                    response.EDnsOptions?.Options.Add(new ClientSubnetOption(24, 24, clientSubnet.Address));
+                }
+
+                context.Response.StatusCode = 200;
+                context.Response.Headers.Server = "ArashiDNSP/Lity";
+
+                if (isJson)
+                {
+                    context.Response.ContentType = "application/json";
+                    await context.Response.WriteAsync(DnsJsonEncoder.Encode(response, true).ToString());
+                }
+                else
+                {
+                    context.Response.ContentType = "application/dns-message";
+                    var bytes = DnsEncoder.Encode(response, transIdEnable: false, id: originalQuery.TransactionID);
+                    context.Response.ContentLength = bytes.Length;
+                    await context.Response.BodyWriter.WriteAsync(bytes);
+                }
             }
         }
 
-        private static int GetTtlFromResponse(DnsMessage response)
+        public static class CacheManager
         {
-            if (!response.AnswerRecords.Any()) return MinTtlSeconds;
-            return Math.Clamp(response.AnswerRecords.Min(r => r.TimeToLive), MinTtlSeconds, MaxTtlSeconds);
-        }
+            public record CacheEntry(DnsMessage ResponseData, DateTimeOffset ExpiryTime);
 
-        private static string GetGeoLocationKey(IPAddress ipAddress)
-        {
-            AsnReader ??= new DatabaseReader("./GeoLite2-ASN.mmdb");
-            CityReader ??= new DatabaseReader("./GeoLite2-City.mmdb");
+            public static ConcurrentDictionary<(DnsQuestion, string), CacheEntry> CacheEntries = new();
+            public static Timer? CleanupTimer;
 
-            var asn = AsnReader.Asn(ipAddress);
-            var city = CityReader.City(ipAddress);
-
-            var key = $"{asn.AutonomousSystemNumber}{asn.AutonomousSystemOrganization}{city.Country.IsoCode}";
-            if (city.Country.IsoCode?.Equals("CN", StringComparison.OrdinalIgnoreCase) == true)
-                key += city.MostSpecificSubdivision.IsoCode;
-
-            return key;
-        }
-
-        private static async Task RefreshCacheAsync(DnsMessage originalQuery, IPEndPoint upstream)
-        {
-            try
+            public static bool TryGetFromCache(DnsQuestion question, string cacheKeySuffix, out CacheEntry entry)
             {
-                var newResponse = await QueryUpstreamAsync(originalQuery, upstream);
-                if (newResponse.ReturnCode is not (ReturnCode.NoError or ReturnCode.NxDomain)) return;
+                entry = null;
+                if (!Program.EnableCache) return false;
 
-                var question = originalQuery.Questions[0];
-                var clientSubnet = ExtractClientSubnetFromDnsMessage(originalQuery);
-                var cacheKeySuffix = EnableGeoCache ? GetGeoLocationKey(clientSubnet) : clientSubnet.ToString();
-                var ttl = GetTtlFromResponse(newResponse);
-                var cacheEntry = new CacheEntry(newResponse, DateTimeOffset.UtcNow.AddSeconds(ttl));
+                if (Program.UseDictionaryCache)
+                    return CacheEntries.TryGetValue((question, cacheKeySuffix), out entry);
 
-                if (UseDictionaryCache)
+                var memoryCacheKey = $"C:{question}{cacheKeySuffix}";
+                if (!MemoryCache.Default.Contains(memoryCacheKey)) return false;
+
+                entry = (CacheEntry)MemoryCache.Default.Get(memoryCacheKey);
+                return true;
+            }
+
+            public static DnsMessage ApplyCacheToResponse(DnsMessage result, CacheEntry cacheEntry)
+            {
+                result.ReturnCode = cacheEntry.ResponseData.ReturnCode;
+                var originTtl = (int)(cacheEntry.ExpiryTime - DateTime.UtcNow).TotalSeconds;
+                var ttl = originTtl <= 0 ? Program.OptimisticTtlSeconds : Math.Max(Program.MinTtlSeconds, originTtl);
+
+                foreach (var record in cacheEntry.ResponseData.AnswerRecords)
+                {
+                    result.AnswerRecords.Add(record switch
+                    {
+                        ARecord a => new ARecord(a.Name, ttl, a.Address),
+                        AaaaRecord aaaa => new AaaaRecord(aaaa.Name, ttl, aaaa.Address),
+                        _ => record
+                    });
+                }
+
+                return result;
+            }
+
+            public static void CacheResponse(DnsQuestion question, string cacheKeySuffix, DnsMessage response)
+            {
+                var ttl = GetTtlFromResponse(response);
+                var cacheEntry = new CacheEntry(response, DateTimeOffset.UtcNow.AddSeconds(ttl));
+
+                if (Program.UseDictionaryCache)
+                {
                     CacheEntries[(question, cacheKeySuffix)] = cacheEntry;
-                else
-                    MemoryCache.Default.Set($"C:{question}{cacheKeySuffix}", cacheEntry,
-                        DateTimeOffset.UtcNow.AddSeconds(ttl).Add(StaleDataThreshold));
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error refreshing cache: {ex.Message}");
-            }
-        }
-
-        private static IPAddress ExtractClientSubnetFromDnsMessage(DnsMessage dnsMsg)
-        {
-            try
-            {
-                return dnsMsg.EDnsOptions?.Options
-                    .OfType<ClientSubnetOption>()
-                    .FirstOrDefault()?.Address ?? IPAddress.Any;
-            }
-            catch
-            {
-                return IPAddress.Any;
-            }
-        }
-
-        private static async Task SendResponse(HttpContext context, DnsMessage response, DnsMessage originalQuery,
-            bool isJson)
-        {
-            if (EnableEcsEcho && originalQuery.EDnsOptions?.Options.Any(x => x.Type == EDnsOptionType.ClientSubnet) ==
-                true)
-            {
-                var clientSubnet =
-                    (ClientSubnetOption) originalQuery.EDnsOptions.Options.First(x =>
-                        x.Type == EDnsOptionType.ClientSubnet);
-                response.EDnsOptions?.Options.Clear();
-                response.EDnsOptions?.Options.Add(new ClientSubnetOption(24, 24, clientSubnet.Address));
-            }
-
-            context.Response.StatusCode = 200;
-            context.Response.Headers.Server = "ArashiDNSP/Lity";
-
-            if (isJson)
-            {
-                context.Response.ContentType = "application/json";
-                await context.Response.WriteAsync(DnsJsonEncoder.Encode(response, true).ToString());
-            }
-            else
-            {
-                context.Response.ContentType = "application/dns-message";
-                var bytes = DnsEncoder.Encode(response, transIdEnable: false, id: originalQuery.TransactionID);
-                context.Response.ContentLength = bytes.Length;
-                await context.Response.BodyWriter.WriteAsync(bytes);
-            }
-        }
-
-        private static void CleanupCache()
-        {
-            var threshold = EnableOptimisticCache ? DateTime.UtcNow : DateTime.UtcNow.Add(-StaleDataThreshold);
-            var expiredKeys = CacheEntries
-                .Where(kvp => kvp.Value.ExpiryTime < threshold)
-                .Select(kvp => kvp.Key)
-                .ToList();
-
-            foreach (var key in expiredKeys)
-                CacheEntries.TryRemove(key, out _);
-
-            Console.WriteLine($"C：{expiredKeys.Count} / {CacheEntries.Count}");
-        }
-
-        public static void DownloadGeoDatabase(string fileName, string downloadUrl)
-        {
-            var basePath = AppDomain.CurrentDomain.SetupInformation.ApplicationBase;
-            var fullPath = Path.Combine(basePath, fileName);
-
-            if (File.Exists(fullPath))
-            {
-                var lastWrite = new FileInfo(fullPath).LastWriteTimeUtc;
-                var daysOld = (DateTime.UtcNow - lastWrite).TotalDays;
-
-                Console.Write($"{fileName} Last updated: {lastWrite}");
-                if (daysOld > 7)
-                {
-                    Console.WriteLine($" : Expired {daysOld:0} days");
-                    File.Delete(fullPath);
                 }
                 else
                 {
-                    Console.WriteLine();
-                    return;
+                    var expiration = Program.EnableOptimisticCache
+                        ? DateTimeOffset.UtcNow.AddSeconds(ttl).Add(Program.StaleDataThreshold)
+                        : DateTimeOffset.UtcNow.AddSeconds(ttl);
+
+                    MemoryCache.Default.Set($"C:{question}{cacheKeySuffix}", cacheEntry, expiration);
                 }
             }
-            else
+
+            public static int GetTtlFromResponse(DnsMessage response)
             {
-                Console.Write($"{fileName} Not Exist or being Updating");
+                if (!response.AnswerRecords.Any()) return Program.MinTtlSeconds;
+                return Math.Clamp(response.AnswerRecords.Min(r => r.TimeToLive), Program.MinTtlSeconds, Program.MaxTtlSeconds);
             }
 
-            Console.WriteLine($"Downloading {fileName}...");
-            File.WriteAllBytes(fullPath, new HttpClient().GetByteArrayAsync(downloadUrl).Result);
-            Console.WriteLine($"{fileName} Download Done");
+            public static void CleanupCache()
+            {
+                var threshold = Program.EnableOptimisticCache ? DateTime.UtcNow : DateTime.UtcNow.Add(-Program.StaleDataThreshold);
+                var expiredKeys = CacheEntries
+                    .Where(kvp => kvp.Value.ExpiryTime < threshold)
+                    .Select(kvp => kvp.Key)
+                    .ToList();
+
+                foreach (var key in expiredKeys)
+                    CacheEntries.TryRemove(key, out _);
+
+                Console.WriteLine($"C：{expiredKeys.Count} / {CacheEntries.Count}");
+            }
+        }
+
+        public static class GeoHelper
+        {
+            public static DatabaseReader? AsnReader;
+            public static DatabaseReader? CityReader;
+
+            public static string GetGeoLocationKey(IPAddress ipAddress)
+            {
+                AsnReader ??= new DatabaseReader("./GeoLite2-ASN.mmdb");
+                CityReader ??= new DatabaseReader("./GeoLite2-City.mmdb");
+
+                var asn = AsnReader.Asn(ipAddress);
+                var city = CityReader.City(ipAddress);
+
+                var key = $"{asn.AutonomousSystemNumber}{asn.AutonomousSystemOrganization}{city.Country.IsoCode}";
+                if (city.Country.IsoCode?.Equals("CN", StringComparison.OrdinalIgnoreCase) == true)
+                    key += city.MostSpecificSubdivision.IsoCode;
+
+                return key;
+            }
+
+            public static void DownloadGeoDatabase(string fileName, string downloadUrl)
+            {
+                var basePath = AppDomain.CurrentDomain.SetupInformation.ApplicationBase;
+                var fullPath = Path.Combine(basePath, fileName);
+
+                if (File.Exists(fullPath))
+                {
+                    var lastWrite = new FileInfo(fullPath).LastWriteTimeUtc;
+                    var daysOld = (DateTime.UtcNow - lastWrite).TotalDays;
+
+                    Console.Write($"{fileName} Last updated: {lastWrite}");
+                    if (daysOld > 7)
+                    {
+                        Console.WriteLine($" : Expired {daysOld:0} days");
+                        File.Delete(fullPath);
+                    }
+                    else
+                    {
+                        Console.WriteLine();
+                        return;
+                    }
+                }
+                else
+                {
+                    Console.Write($"{fileName} Not Exist or being Updating");
+                }
+
+                Console.WriteLine($"Downloading {fileName}...");
+                File.WriteAllBytes(fullPath, new HttpClient().GetByteArrayAsync(downloadUrl).Result);
+                Console.WriteLine($"{fileName} Download Done");
+            }
         }
 
         public class ObjectPool<T>
