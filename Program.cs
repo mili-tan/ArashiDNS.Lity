@@ -281,7 +281,11 @@ namespace ArashiDNS.Lity
 
                     return new DnsMessage
                     {
-                        Questions = { new DnsQuestion(DomainName.Parse(nameStr.ToString()), recordType, RecordClass.INet) }
+                        Questions =
+                        {
+                            new DnsQuestion(DomainName.Parse(nameStr.ToString().Trim('\\').Trim()), recordType,
+                                RecordClass.INet)
+                        }
                     };
                 }
 
