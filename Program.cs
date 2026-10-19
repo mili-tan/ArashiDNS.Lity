@@ -400,7 +400,10 @@ namespace ArashiDNS.Lity
                     queryTimeout: QueryTimeoutMs);
 
                 return await client.SendMessageAsync(query) ?? new DnsMessage()
-                { ReturnCode = ReturnCode.ServerFailure, Questions = query.Questions, IsQuery = false };
+                {
+                    ReturnCode = ReturnCode.ServerFailure, Questions = query.Questions,
+                    AnswerRecords = [], IsQuery = false
+                };
             }
 
             private static async Task RefreshCacheAsync(DnsMessage originalQuery, IPEndPoint upstream)
