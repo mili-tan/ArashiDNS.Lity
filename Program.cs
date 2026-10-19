@@ -30,6 +30,7 @@ namespace ArashiDNS.Lity
         public static bool MonitorUpstreamPort = true;
         public static bool UseHardDeduplication = false;
         public static bool UseDictionaryCache = false;
+        public static bool UseSoftFail = false;
         public static int DeduplicationWaitMs = 100;
         public static IPEndPoint UpstreamEndpoint = new(IPAddress.Parse("8.8.8.8"), 53);
         public static Dictionary<string, IPEndPoint> CustomPathUpstreamMappings = new();
@@ -402,7 +403,10 @@ namespace ArashiDNS.Lity
                 return await client.SendMessageAsync(query) ?? new DnsMessage()
                 {
                     ReturnCode = ReturnCode.ServerFailure, Questions = query.Questions,
-                    AnswerRecords = [], IsQuery = false
+                    AnswerRecords = UseSoftFail
+                        ? [new ARecord(query.Questions.FirstOrDefault()?.Name!, 60, IPAddress.Any)]
+                        : [],
+                    IsQuery = false
                 };
             }
 
