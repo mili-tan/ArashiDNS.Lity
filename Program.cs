@@ -22,7 +22,7 @@ namespace ArashiDNS.Lity
         public static string QueryPath = "dns-query";
         public static string QueryParamKey = "dns";
         public static bool EnableResponseValidation = false;
-        public static bool EnableRequestDeduplication = true;
+        public static bool EnableRequestDeduplication = false;
         public static bool EnableEcsEcho = true;
         public static bool EnableCache = false;
         public static bool EnableGeoCache = false;
@@ -251,7 +251,7 @@ namespace ArashiDNS.Lity
                     return;
                 }
 
-                var question = query.Questions.First();
+                var question = query.Questions.FirstOrDefault();
                 var clientSubnet = ExtractClientSubnet(query, context);
                 var cacheKeySuffix = EnableGeoCache ? GeoHelper.GetGeoLocationKey(clientSubnet) : clientSubnet.ToString();
 
@@ -323,25 +323,26 @@ namespace ArashiDNS.Lity
             {
                 SemaphoreSlim semaphore = null;
 
-                if (EnableRequestDeduplication)
+                try
                 {
-                    if (UseHardDeduplication)
+
+                    if (EnableRequestDeduplication)
                     {
-                        if (MemoryCache.Default.Contains($"W:{question}{clientSubnet}"))
-                            await Task.Delay(100);
-                    }
-                    else
-                    {
-                        semaphore = RequestSemaphores.GetOrAdd($"{question}{clientSubnet}", _ => new SemaphoreSlim(1, 1));
-                        try
+                        if (UseHardDeduplication)
                         {
+                            if (MemoryCache.Default.Contains($"W:{question}{clientSubnet}"))
+                                await Task.Delay(100);
+                        }
+                        else
+                        {
+                            semaphore = RequestSemaphores.GetOrAdd($"{question}{clientSubnet}", _ => new SemaphoreSlim(1, 1));
                             await semaphore.WaitAsync(DeduplicationWaitMs);
                         }
-                        catch (Exception e)
-                        {
-                            Console.WriteLine(e);
-                        }
                     }
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e);
                 }
 
                 try
@@ -377,7 +378,7 @@ namespace ArashiDNS.Lity
                     var resolver = RecursiveResolverPool.Get();
                     try
                     {
-                        var question = query.Questions.First();
+                        var question = query.Questions.FirstOrDefault();
                         var records =
                             resolver.Resolve<DnsRecordBase>(question.Name, question.RecordType, question.RecordClass);
 
@@ -395,19 +396,28 @@ namespace ArashiDNS.Lity
                     }
                 }
 
-                var client = new DnsClient(
-                    [upstream.Address],
-                    [new UdpClientTransport(upstream.Port), new TcpClientTransport(upstream.Port)],
-                    queryTimeout: QueryTimeoutMs);
-
-                return await client.SendMessageAsync(query) ?? new DnsMessage()
+                try
                 {
-                    ReturnCode = ReturnCode.ServerFailure, Questions = query.Questions,
-                    AnswerRecords = UseSoftFail
-                        ? [new ARecord(query.Questions.FirstOrDefault()?.Name!, 60, IPAddress.Any)]
-                        : [],
-                    IsQuery = false
-                };
+                    var client = new DnsClient(
+                        [upstream.Address],
+                        [new UdpClientTransport(upstream.Port), new TcpClientTransport(upstream.Port)],
+                        queryTimeout: QueryTimeoutMs);
+
+                    return await client.SendMessageAsync(query) ?? new DnsMessage()
+                    {
+                        ReturnCode = ReturnCode.ServerFailure,
+                        Questions = query.Questions,
+                        AnswerRecords = UseSoftFail
+                            ? [new ARecord(query.Questions.FirstOrDefault()?.Name!, 60, IPAddress.Any)]
+                            : [],
+                        IsQuery = false
+                    };
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e);
+                    return new DnsMessage();
+                }
             }
 
             private static async Task RefreshCacheAsync(DnsMessage originalQuery, IPEndPoint upstream)
@@ -456,8 +466,8 @@ namespace ArashiDNS.Lity
                     true)
                 {
                     var clientSubnet =
-                        (ClientSubnetOption)originalQuery.EDnsOptions.Options.First(x =>
-                            x.Type == EDnsOptionType.ClientSubnet);
+                        (ClientSubnetOption)originalQuery.EDnsOptions.Options.FirstOrDefault(x =>
+                            x.Type == EDnsOptionType.ClientSubnet)!;
                     response.EDnsOptions?.Options.Clear();
                     response.EDnsOptions?.Options.Add(new ClientSubnetOption(24, 24, clientSubnet.Address));
                 }
@@ -487,56 +497,80 @@ namespace ArashiDNS.Lity
             public static ConcurrentDictionary<(DnsQuestion, string), CacheEntry> CacheEntries = new();
             public static Timer? CleanupTimer;
 
-            public static bool TryGetFromCache(DnsQuestion question, string cacheKeySuffix, out CacheEntry entry)
+            public static bool TryGetFromCache(DnsQuestion question, string cacheKeySuffix, out CacheEntry? entry)
             {
-                entry = null;
-                if (!EnableCache) return false;
+                try
+                {
+                    entry = null;
+                    if (!EnableCache) return false;
 
-                if (UseDictionaryCache)
-                    return CacheEntries.TryGetValue((question, cacheKeySuffix), out entry);
+                    if (UseDictionaryCache)
+                        return CacheEntries.TryGetValue((question, cacheKeySuffix), out entry);
 
-                var memoryCacheKey = $"C:{question}{cacheKeySuffix}";
-                if (!MemoryCache.Default.Contains(memoryCacheKey)) return false;
+                    var memoryCacheKey = $"C:{question}{cacheKeySuffix}";
+                    if (!MemoryCache.Default.Contains(memoryCacheKey)) return false;
 
-                entry = (CacheEntry)MemoryCache.Default.Get(memoryCacheKey);
-                return true;
+                    entry = (CacheEntry)MemoryCache.Default.Get(memoryCacheKey);
+                    return true;
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e);
+                    entry = null;
+                    return false;
+                }
             }
 
             public static DnsMessage ApplyCacheToResponse(DnsMessage result, CacheEntry cacheEntry)
             {
-                result.ReturnCode = cacheEntry.ResponseData.ReturnCode;
-                var originTtl = (int)(cacheEntry.ExpiryTime - DateTime.UtcNow).TotalSeconds;
-                var ttl = originTtl <= 0 ? OptimisticTtlSeconds : Math.Max(MinTtlSeconds, originTtl);
-
-                foreach (var record in cacheEntry.ResponseData.AnswerRecords)
+                try
                 {
-                    result.AnswerRecords.Add(record switch
-                    {
-                        ARecord a => new ARecord(a.Name, ttl, a.Address),
-                        AaaaRecord aaaa => new AaaaRecord(aaaa.Name, ttl, aaaa.Address),
-                        _ => record
-                    });
-                }
+                    result.ReturnCode = cacheEntry.ResponseData.ReturnCode;
+                    var originTtl = (int)(cacheEntry.ExpiryTime - DateTime.UtcNow).TotalSeconds;
+                    var ttl = originTtl <= 0 ? OptimisticTtlSeconds : Math.Max(MinTtlSeconds, originTtl);
 
-                return result;
+                    foreach (var record in cacheEntry.ResponseData.AnswerRecords)
+                    {
+                        result.AnswerRecords.Add(record switch
+                        {
+                            ARecord a => new ARecord(a.Name, ttl, a.Address),
+                            AaaaRecord aaaa => new AaaaRecord(aaaa.Name, ttl, aaaa.Address),
+                            _ => record
+                        });
+                    }
+
+                    return result;
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e);
+                    return result;
+                }
             }
 
             public static void CacheResponse(DnsQuestion question, string cacheKeySuffix, DnsMessage response)
             {
-                var ttl = GetTtlFromResponse(response);
-                var cacheEntry = new CacheEntry(response, DateTimeOffset.UtcNow.AddSeconds(ttl));
-
-                if (UseDictionaryCache)
+                try
                 {
-                    CacheEntries[(question, cacheKeySuffix)] = cacheEntry;
+                    var ttl = GetTtlFromResponse(response);
+                    var cacheEntry = new CacheEntry(response, DateTimeOffset.UtcNow.AddSeconds(ttl));
+
+                    if (UseDictionaryCache)
+                    {
+                        CacheEntries[(question, cacheKeySuffix)] = cacheEntry;
+                    }
+                    else
+                    {
+                        var expiration = EnableOptimisticCache
+                            ? DateTimeOffset.UtcNow.AddSeconds(ttl).Add(StaleDataThreshold)
+                            : DateTimeOffset.UtcNow.AddSeconds(ttl);
+
+                        MemoryCache.Default.Set($"C:{question}{cacheKeySuffix}", cacheEntry, expiration);
+                    }
                 }
-                else
+                catch (Exception e)
                 {
-                    var expiration = EnableOptimisticCache
-                        ? DateTimeOffset.UtcNow.AddSeconds(ttl).Add(StaleDataThreshold)
-                        : DateTimeOffset.UtcNow.AddSeconds(ttl);
-
-                    MemoryCache.Default.Set($"C:{question}{cacheKeySuffix}", cacheEntry, expiration);
+                    Console.WriteLine(e);
                 }
             }
 
@@ -548,16 +582,23 @@ namespace ArashiDNS.Lity
 
             public static void CleanupCache()
             {
-                var threshold = EnableOptimisticCache ? DateTime.UtcNow : DateTime.UtcNow.Add(-StaleDataThreshold);
-                var expiredKeys = CacheEntries
-                    .Where(kvp => kvp.Value.ExpiryTime < threshold)
-                    .Select(kvp => kvp.Key)
-                    .ToList();
+                try
+                {
+                    var threshold = EnableOptimisticCache ? DateTime.UtcNow : DateTime.UtcNow.Add(-StaleDataThreshold);
+                    var expiredKeys = CacheEntries
+                        .Where(kvp => kvp.Value.ExpiryTime < threshold)
+                        .Select(kvp => kvp.Key)
+                        .ToList();
 
-                foreach (var key in expiredKeys)
-                    CacheEntries.TryRemove(key, out _);
+                    foreach (var key in expiredKeys)
+                        CacheEntries.TryRemove(key, out _);
 
-                Console.WriteLine($"C：{expiredKeys.Count} / {CacheEntries.Count}");
+                    Console.WriteLine($"C：{expiredKeys.Count} / {CacheEntries.Count}");
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e);
+                }
             }
         }
 

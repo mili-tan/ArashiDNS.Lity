@@ -73,7 +73,7 @@ namespace ArashiDNS
             var response = new DnsMessage();
             if (query.Questions.Count == 0) return response;
 
-            var quest = query.Questions.First();
+            var quest = query.Questions.FirstOrDefault();
             var cacheKey = UseEcsCache ? BuildCacheKey(query) : BuildCacheKey(quest);
 
             if ((No6564 && quest.RecordType is RecordType.Https or RecordType.SvcB) ||
@@ -119,7 +119,7 @@ namespace ArashiDNS
 
         private static string BuildCacheKey(DnsMessage message)
         {
-            var quest = message.Questions.First();
+            var quest = message.Questions.FirstOrDefault();
             return $"{quest.Name}:{quest.RecordType}:{quest.RecordClass}:{GetClientIpBase64(message)}";
         }
 
