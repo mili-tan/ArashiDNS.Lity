@@ -25,6 +25,7 @@ namespace ArashiDNS.Lity
         public static bool EnableRequestDeduplication = false;
         public static bool EnableEcsEcho = true;
         public static bool EnableCache = false;
+        public static bool EnableTransID = true;
         public static bool EnableGeoCache = false;
         public static bool EnableOptimisticCache = false;
         public static bool MonitorUpstreamPort = true;
@@ -97,6 +98,10 @@ namespace ArashiDNS.Lity
                 CommandOptionType.SingleValue);
             var minTtlOption = cmd.Option<int>("-min-t <Seconds>",
                 isZh ? "缓存的最小TTL（秒）。[60]" : "Minimum TTL for cache (Seconds). [60]", CommandOptionType.SingleValue);
+            var noTransIdOption = cmd.Option<bool>("-noid",
+                isZh
+                    ? "不保留传输 Id。"
+                    : "Do not keep TransactionID.", CommandOptionType.NoValue);
 
             cmd.OnExecute(() =>
             {
@@ -107,6 +112,7 @@ namespace ArashiDNS.Lity
                 if (keyOption.HasValue()) QueryParamKey = keyOption.ParsedValue;
                 if (validationOption.HasValue()) EnableResponseValidation = validationOption.ParsedValue;
                 if (cacheOption.HasValue()) EnableCache = cacheOption.ParsedValue;
+                if (noTransIdOption.HasValue()) EnableTransID = !noTransIdOption.ParsedValue;
                 if (optimisticCacheOption.HasValue()) EnableOptimisticCache = optimisticCacheOption.ParsedValue;
                 if (maxTtlOption.HasValue()) MaxTtlSeconds = maxTtlOption.ParsedValue;
                 if (minTtlOption.HasValue()) MinTtlSeconds = minTtlOption.ParsedValue;
@@ -483,7 +489,8 @@ namespace ArashiDNS.Lity
                 else
                 {
                     context.Response.ContentType = "application/dns-message";
-                    var bytes = DnsEncoder.Encode(response, transIdEnable: false, id: originalQuery.TransactionID);
+                    var bytes = DnsEncoder.Encode(response, transIdEnable: EnableTransID,
+                        id: originalQuery.TransactionID);
                     context.Response.ContentLength = bytes.Length;
                     await context.Response.BodyWriter.WriteAsync(bytes);
                 }
