@@ -22,7 +22,7 @@
     <PackageReference Include="McMaster.Extensions.CommandLineUtils" Version="5.1.0" />
     <PackageReference Include="DeepCloner.Core" Version="0.1.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-    <PackageReference Include="System.Runtime.Caching" Version="10.0.13" />
+    <PackageReference Include="System.Runtime.Caching" Version="11.0.0" />
     <PackageReference Include="TldExtract" Version="1.0.0" />
   </ItemGroup>
 
